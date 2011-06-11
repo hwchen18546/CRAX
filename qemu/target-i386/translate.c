@@ -453,6 +453,11 @@ static inline void gen_op_addl_T0_T1(void)
 
 static inline void gen_op_jmp_T0(DisasContext *s)
 {
+    //#ifdef CONFIG_S2E
+    //s2e_on_translate_block_end(g_s2e, g_s2e_state,
+    //                           s->tb, s->insPc, 0, 0);
+    //#endif
+    //printf("%d\n",cpu_T[0].val_type);
     tcg_gen_st_tl(cpu_T[0], cpu_env, offsetof(CPUState, eip));
     #ifdef CONFIG_S2E
     s2e_on_translate_block_end(g_s2e, g_s2e_state,
@@ -7938,7 +7943,9 @@ static inline void gen_intermediate_code_internal(CPUState *env,
 #endif
 
     cpu_T[0] = tcg_temp_new();
+    //printf("CPU_T[0] = %d\n",cpu_T[0]);
     cpu_T[1] = tcg_temp_new();
+    //printf("CPU_T[1] = %d\n",cpu_T[1]);
     cpu_A0 = tcg_temp_new();
     cpu_T3 = tcg_temp_new();
 

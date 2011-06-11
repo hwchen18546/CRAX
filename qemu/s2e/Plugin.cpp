@@ -40,6 +40,7 @@
 // XXX: hack: for now we include and register all plugins right there
 #include <s2e/Plugins/CorePlugin.h>
 #include <s2e/Plugins/Example.h>
+#include <s2e/Plugins/Exploit.h>
 #include <s2e/Plugins/RawMonitor.h>
 #include <s2e/Plugins/FunctionMonitor.h>
 #include <s2e/Plugins/WindowsInterceptor/WindowsMonitor.h>
@@ -142,6 +143,7 @@ PluginsFactory::PluginsFactory()
 
     __S2E_REGISTER_PLUGIN(plugins::Debugger);
     __S2E_REGISTER_PLUGIN(plugins::Example);
+    __S2E_REGISTER_PLUGIN(plugins::Exploit);
 
 #undef __S2E_REGISTER_PLUGIN
 }

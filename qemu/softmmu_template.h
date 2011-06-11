@@ -254,7 +254,8 @@ DATA_TYPE REGPARM glue(glue(__ld, SUFFIX), MMUSUFFIX)(target_ulong addr,
     target_ulong tlb_addr;
     target_phys_addr_t addend;
     void *retaddr;
-
+//if(env->eip == 0x8048575)
+  //printf("lalalalalal\n");
     /* test if there is match for unaligned or IO access */
     /* XXX: could done more in memory macro in a non portable way */
     addr = S2E_FORK_AND_CONCRETIZE_ADDR(addr, ADDR_MAX);
@@ -294,13 +295,18 @@ DATA_TYPE REGPARM glue(glue(__ld, SUFFIX), MMUSUFFIX)(target_ulong addr,
             addend = env->tlb_table[mmu_idx][index].addend;
 
 #if defined(CONFIG_S2E) && defined(S2E_ENABLE_S2E_TLB) && !defined(S2E_LLVM_LIB)
+//if(env->eip == 0x8048575)
+  //printf("lalalalalal\n");
             S2ETLBEntry *e = &env->s2e_tlb_table[mmu_idx][object_index & (CPU_S2E_TLB_SIZE-1)];
             if(_s2e_check_concrete(e->objectState, addr & ~S2E_RAM_OBJECT_MASK, DATA_SIZE))
+
                 res = glue(glue(ld, USUFFIX), _p)((uint8_t*)(addr + (e->addend&~1)));
             else
 #endif
+//{if(env->eip == 0x8048575)
+  //printf("aaaaaaaaaaaaaaaaaaaaaaaaaaaa\n");
                 res = glue(glue(ld, USUFFIX), _raw)((uint8_t *)(intptr_t)(addr+addend));
-
+//}
             S2E_TRACE_MEMORY(addr, addr+addend, res, 0, 0);
         }
     } else {

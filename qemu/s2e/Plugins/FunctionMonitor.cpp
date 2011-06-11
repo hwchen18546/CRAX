@@ -76,6 +76,8 @@ FunctionMonitor::CallSignal* FunctionMonitor::getCallSignal(
         uint64_t eip, uint64_t cr3)
 {
     DECLARE_PLUGINSTATE(FunctionMonitorState, state);
+    //FunctionMonitorState *plgState = static_cast<FunctionMonitorState*>(
+    //state->getPluginState(state, &FunctionMonitorState::factory);
 
     return plgState->getCallSignal(eip, cr3);
 }

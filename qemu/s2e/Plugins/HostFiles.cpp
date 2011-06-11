@@ -103,7 +103,7 @@ void HostFiles::onCustomInstruction(S2EExecutionState *state, uint64_t opcode)
                     << "Error reading file name string from the guest" << std::endl;
                 break;
             }
-
+/*
             unsigned i;
             for(i = 0; i < fname.size(); ++i) {
                 if(!(isalnum(fname[i]) || fname[i] == ','
@@ -117,7 +117,7 @@ void HostFiles::onCustomInstruction(S2EExecutionState *state, uint64_t opcode)
                     << "Guest passes ivalid file name to HostFiles plugin" << std::endl;
                 break;
             }
-
+*/
             int fd = open((m_baseDir + "/" + fname).c_str(), O_RDONLY);
             if(fd != -1) {
                 m_openFiles.push_back(fd);

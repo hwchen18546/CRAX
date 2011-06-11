@@ -238,6 +238,7 @@ public:
 
   static void getOutFiles(std::string path,
 			  std::vector<std::string> &results);
+  void handlerCourruptEip(klee::ExecutionState &state, ref<Expr> value){};
 };
 
 KleeHandler::KleeHandler(int argc, char **argv) 

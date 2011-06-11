@@ -154,10 +154,12 @@ public:
 
 class ObjectState {
 private:
+//public:
   // XXX(s2e) for now we keep this first to access from C code
   // (yes, we do need to access if really fast)
   BitArray *concreteMask;
 
+//private:
   friend class AddressSpace;
   unsigned copyOnWriteOwner; // exclusively for AddressSpace
 
@@ -246,7 +248,7 @@ public:
   const uint8_t *getConcreteStore(bool allowSymbolic = false) const;
   uint8_t *getConcreteStore(bool allowSymolic = false);
 
-private:
+//private:
   const UpdateList &getUpdates() const;
 
   void makeConcrete();

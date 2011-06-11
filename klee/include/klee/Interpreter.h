@@ -14,6 +14,9 @@
 #include <map>
 #include <set>
 
+#include "klee/util/Ref.h"
+#include "klee/Expr.h"
+
 struct KTest;
 
 namespace llvm {
@@ -42,6 +45,8 @@ public:
   virtual void processTestCase(const ExecutionState &state,
                                const char *err, 
                                const char *suffix) = 0;
+
+  virtual void handlerCourruptEip(ExecutionState &state, ref<Expr> value) = 0;
 };
 
 class Interpreter {

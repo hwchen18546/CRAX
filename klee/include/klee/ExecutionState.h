@@ -110,7 +110,9 @@ public:
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
   void removeFnAlias(std::string fn);
-  
+ 
+  void *  eip;
+ 
 private:
   ExecutionState() : fakeState(false), underConstrained(0),
                      addressSpace(this), ptreeNode(0) {}

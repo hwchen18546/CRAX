@@ -1000,7 +1000,8 @@ int TCGLLVMContextPrivate::generateOperation(int opc, const TCGArg *args)
         assert(getValue(args[1])->getType() == wordType());
 
         Value* valueToStore = getValue(args[0]);
-        if (args[1] == 0 && args[2] == offsetof(CPUX86State, eip)) {
+       // if (args[1] == 0 && args[2] == offsetof(CPUX86State, eip)) {
+        if(0){
             valueToStore = m_builder.CreateCall3(m_helperForkAndConcretize,
                                 m_builder.CreateZExt(valueToStore, intType(64)),
                                 ConstantInt::get(intType(64), 0),

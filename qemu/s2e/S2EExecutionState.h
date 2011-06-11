@@ -159,6 +159,8 @@ public:
     /** Returns a mask of registers that contains symbolic values */
     uint64_t getSymbolicRegistersMask() const;
 
+    klee::ref<klee::Expr> getEax();
+
     /** Read CPU general purpose register */
     klee::ref<klee::Expr> readCpuRegister(unsigned offset,
                                           klee::Expr::Width width) const;
@@ -181,6 +183,7 @@ public:
     uint64_t getPc() const;
     uint64_t getPid() const;
     uint64_t getSp() const;
+    uint64_t getBp() const;
 
     void setPc(uint64_t pc);
     void setSp(uint64_t sp);

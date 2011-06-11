@@ -147,8 +147,8 @@ void S2EExecutionState::enableForking()
 
     forkDisabled = false;
 
-    g_s2e->getMessagesStream(this) << "Enabled forking"
-            << " at pc = " << (void*) getPc() << std::endl;
+    //g_s2e->getMessagesStream(this) << "Enabled forking"
+    //        << " at pc = " << (void*) getPc() << std::endl;
 }
 
 void S2EExecutionState::disableForking()
@@ -159,8 +159,8 @@ void S2EExecutionState::disableForking()
 
     forkDisabled = true;
 
-    g_s2e->getMessagesStream(this) << "Disabled forking"
-            << " at pc = " << (void*) getPc() << std::endl;
+    //g_s2e->getMessagesStream(this) << "Disabled forking"
+    //        << " at pc = " << (void*) getPc() << std::endl;
 }
 
 
@@ -255,9 +255,16 @@ ExecutionState* S2EExecutionState::clone()
     return ret;
 }
 
+ref<Expr> S2EExecutionState::getEax()
+{
+  return readCpuRegister(offsetof(CPUState, regs[R_EAX]), klee::Expr::Int32);
+}
+
 ref<Expr> S2EExecutionState::readCpuRegister(unsigned offset,
                                              Expr::Width width) const
 {
+//offset = offsetof(CPUState, regs[R_EBX]);
+//width = klee::Expr::Int32;
     assert((width == 1 || (width&7) == 0) && width <= 64);
     assert(offset + Expr::getMinBytesForWidth(width) <= CPU_OFFSET(eip));
 
@@ -382,6 +389,12 @@ uint64_t S2EExecutionState::getSp() const
     return cast<ConstantExpr>(e)->getZExtValue(64);
 }
 
+uint64_t S2EExecutionState::getBp() const
+{
+    ref<Expr> e = readCpuRegister(CPU_OFFSET(regs[R_EBP]),
+                                  8*sizeof(target_ulong));
+    return cast<ConstantExpr>(e)->getZExtValue(64);
+}
 //This function must be called just after the machine call instruction
 //was executed.
 //XXX: assumes x86 architecture.
@@ -698,7 +711,7 @@ bool S2EExecutionState::writeMemory8(uint64_t address,
     uint64_t hostAddress = getHostAddress(address, addressType);
     if(hostAddress == (uint64_t) -1)
         return false;
-
+  //  g_s2e->getMessagesStream(this) << "address " << address << "host " << hostAddress <<std::endl;
     ObjectPair op = addressSpace.findObject(hostAddress & S2E_RAM_OBJECT_MASK);
 
     assert(op.first && op.first->isUserSpecified
@@ -706,6 +719,7 @@ bool S2EExecutionState::writeMemory8(uint64_t address,
 
     ObjectState *wos = addressSpace.getWriteable(op.first, op.second);
     wos->write(hostAddress & ~S2E_RAM_OBJECT_MASK, value);
+     //g_s2e->getMessagesStream(this) << op.second->isByteKnownSymbolic(hostAddress & ~S2E_RAM_OBJECT_MASK) << std::endl;
     return true;
 }
 
@@ -811,7 +825,7 @@ std::vector<ref<Expr> > S2EExecutionState::createSymbolicArray(
     mo->setName(sname);
 
     symbolics.push_back(std::make_pair(mo, array));
-
+    
     return result;
 }
 
@@ -829,7 +843,6 @@ void S2EExecutionState::undoCallAndJumpToSymbolic()
     }
 }
 
-
 void S2EExecutionState::dumpX86State(std::ostream &os) const
 {
 
@@ -844,6 +857,13 @@ void S2EExecutionState::dumpX86State(std::ostream &os) const
     os << "ESP=0x" << readCpuRegister(offsetof(CPUState, regs[R_ESP]), klee::Expr::Int32) << std::endl;
     os << "EIP=0x" << readCpuState(offsetof(CPUState, eip), 32) << std::endl;
     os << "CR2=0x" << readCpuState(offsetof(CPUState, cr[2]), 32) << std::endl;
+    os << "ES=0x" << readCpuState(offsetof(CPUState, segs[R_ES].selector), 32) << std::endl;
+    //os << "ESi222=0x" << env->segs[R_ES]->name << std::endl;
+    os << "CS=0x" << readCpuState(offsetof(CPUState, segs[R_CS].selector), 32) << std::endl;
+    os << "SS=0x" << readCpuState(offsetof(CPUState, segs[R_SS].selector), 32) << std::endl;
+    os << "DS=0x" << readCpuState(offsetof(CPUState, segs[R_DS].selector), 32) << std::endl;
+    os << "FS=0x" << readCpuState(offsetof(CPUState, segs[R_FS].selector), 32) << std::endl;
+    os << "GS=0x" << readCpuState(offsetof(CPUState, segs[R_GS].selector), 32) << std::endl;
     os << std::dec;
 }
 

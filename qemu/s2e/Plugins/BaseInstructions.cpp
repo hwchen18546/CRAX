@@ -54,7 +54,12 @@ extern "C" {
 #include <llvm/System/TimeValue.h>
 #include <klee/Searcher.h>
 #include <klee/Solver.h>
-
+/*
+bool my_sort123(const std::pair<uint32_t,uint32_t> a,const std::pair<uint32_t,uint32_t> b)
+{ 
+  return a.second > b.second;
+}
+*/
 namespace s2e {
 namespace plugins {
 
@@ -65,6 +70,21 @@ S2E_DEFINE_PLUGIN(BaseInstructions, "Default set of custom instructions plugin",
 
 void BaseInstructions::initialize()
 {
+    tainted_value = s2e()->getConfig()->getInt(getConfigKey() + ".tainted_value");
+    open = s2e()->getConfig()->getBool(getConfigKey() + ".open");
+    exclude = s2e()->getConfig()->getIntegerList(getConfigKey() + ".exclude");
+
+    printf("open = %d\n",open);
+
+   for(int i = 0 ; i<exclude.size() ; i++)
+      printf("%u\n",exclude[i]);
+
+/*
+printf("%x\n",tainted_value & 0x000000ff);i
+printf("%x\n",(tainted_value & 0x0000ff00) >> 8);
+printf("%x\n",(tainted_value & 0x00ff0000) >> 16);
+printf("%x\n",(tainted_value & 0xff000000) >> 24);
+*/
     s2e()->getCorePlugin()->onCustomInstruction.connect(
             sigc::mem_fun(*this, &BaseInstructions::onCustomInstruction));
 
@@ -87,6 +107,7 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
 
         case 3: { /* make_symbolic */
             uint32_t address, size, name; // XXX
+            uint32_t knownLength;
             bool ok = true;
             ok &= state->readCpuRegisterConcrete(CPU_OFFSET(regs[R_EAX]),
                                                  &address, 4);
@@ -94,6 +115,8 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
                                                  &size, 4);
             ok &= state->readCpuRegisterConcrete(CPU_OFFSET(regs[R_ECX]),
                                                  &name, 4);
+            ok &= state->readCpuRegisterConcrete(CPU_OFFSET(regs[R_EDX]),
+                                                 &knownLength, 4);
 
             if(!ok) {
                 s2e()->getWarningsStream(state)
@@ -110,11 +133,22 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
                 nameStr = "defstr";
             }
 
+//size = 2048;
             s2e()->getMessagesStream(state)
                     << "Inserting symbolic data at " << hexval(address)
                     << " of size " << hexval(size)
                     << " with name '" << nameStr << "'" << std::endl;
-
+//address++;
+// klee::ObjectPair op4;
+//int64_t hostAddress3 =  state->getHostAddress(state->getSp());
+//if(hostAddress3 !=  (uint64_t) -1)
+//{
+  //op4 = state->addressSpace.findObject(hostAddress3 & S2E_RAM_OBJECT_MASK);
+  //!op4.second->isByteConcrete(hostAddress4 & ~S2E_RAM_OBJECT_MASK)
+  //s2e()->getMessagesStream(state) << "size " << op4.second->concreteMask << std::endl;
+  //state->dumpStack(op4.second->size,state->getSp());
+//}
+//size--;
             vector<ref<Expr> > symb = state->createSymbolicArray(size, nameStr);
             for(unsigned i = 0; i < size; ++i) {
                 if(!state->writeMemory8(address + i, symb[i])) {
@@ -123,6 +157,168 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
                         << " at " << hexval(address + i)
                         << ": can not write to memory" << std::endl;
                 }
+               if( i < knownLength)
+               {
+                 for(unsigned int j = 0 ; j<exclude.size() ; j++)
+                   state->addConstraint( NotExpr::create(EqExpr::create(symb[i], ConstantExpr::alloc(exclude[j],Expr::Int8))));
+               }  
+               //if(i==0)
+               //  state->addConstraint( EqExpr::create(symb[i], ConstantExpr::alloc(0x2f,Expr::Int8)));
+               //else if(i != size -1) 
+               //  state->addConstraint( NotExpr::create(EqExpr::create(symb[i], ConstantExpr::alloc(0x2f,Expr::Int8))));
+               //else
+               //  state->addConstraint( EqExpr::create(symb[i], ConstantExpr::alloc(0x0,Expr::Int8)));
+            }
+               //  state->addConstraint( EqExpr::create(symb[size-1], ConstantExpr::alloc(0x0,Expr::Int8)));
+             //enum AddresstType addressType = VirtualAddress;
+            //int64_t hostAddress =  state->getHostAddress(address-1);
+
+state->dumpStack(40,0x08048000);
+
+//ObjectPair op;  
+//bool success;   
+//state->addressSpace.resolveOne(state, s2e()->getExecutor()->getSolver(), symb[0], op, success);
+//char ttt;
+//const MemoryObject *mo = op.first;
+/*
+int64_t hostAddress4 =  state->getHostAddress(state->getSp());
+
+if(hostAddress4 !=  (uint64_t) -1)
+{
+  klee::ObjectPair op4 = state->addressSpace.findObject(hostAddress4 & S2E_RAM_OBJECT_MASK);
+  //!op4.second->isByteConcrete(hostAddress4 & ~S2E_RAM_OBJECT_MASK)
+  s2e()->getMessagesStream(state) << "size " << op4.second->size<< "ALL: "<<op4.second->isAllConcrete() << std::endl;
+   s2e()->getMessagesStream(state) << "offset " << (hostAddress4 & ~S2E_RAM_OBJECT_MASK) << std::endl;
+  state->dumpStack(op4.second->size,state->getSp());
+}
+*/
+
+/*
+
+
+  std::vector<std::pair<uint32_t,uint32_t> > sym_table;
+
+  uint32_t virtualAddress = state->getSp();
+
+  for(int i=0 ; i<5 ; i++)
+  { 
+    uint64_t hostAddress =  state->getHostAddress(virtualAddress);
+    if(hostAddress !=  (uint64_t) -1)
+    {
+      klee::ObjectPair op = state->addressSpace.findObject(hostAddress & S2E_RAM_OBJECT_MASK);
+      s2e()->getMessagesStream(state) << "size " << op.second->size<< " ALL Concrete?: "<<op.second->isAllConcrete() << " offset " << (hostAddress & ~S2E_RAM_OBJECT_MASK) << std::hex << " address " << virtualAddress - (hostAddress & ~S2E_RAM_OBJECT_MASK) << " ~ "<< virtualAddress + (op.second->size - (hostAddress & ~S2E_RAM_OBJECT_MASK)) - 1<< std::endl;
+
+      unsigned int size = op.second->size;
+      unsigned int offset = (hostAddress & ~S2E_RAM_OBJECT_MASK);
+      virtualAddress = virtualAddress - offset;
+        
+      if(! op.second->isAllConcrete())
+      {
+        state->dumpStack(size/4,virtualAddress);
+
+        for(unsigned int j=0 ; j<size ; j++)
+        {   
+          if(op.second->isByteKnownSymbolic(j))
+          {
+            s2e()->getMessagesStream(state) << "1.symbolic address: " << std::hex << virtualAddress + j << " " << state->readMemory8(virtualAddress + j) << std::endl;
+            
+            int k=1;
+            for(j=j+1; j<size ;j++)
+            {   
+              if(! op.second->isByteKnownSymbolic(j))
+              {
+                break;
+              }
+              k++;
+              s2e()->getMessagesStream(state) << "2.symbolic address: " << std::hex << virtualAddress + j << " " << state->readMemory8(virtualAddress + j) << std::endl;
+            }
+           
+            if(!sym_table.empty() && (sym_table.back().first + sym_table.back().second) == (virtualAddress + j) - k )
+            {
+              sym_table.back().second += k;
+            } 
+            else
+            {
+              std::pair<uint32_t, uint32_t> temp((virtualAddress + j) - k, k);
+              sym_table.push_back(temp);
+            }
+          }
+        }
+      } 
+      virtualAddress = virtualAddress + size ;
+    }
+  }
+
+std::vector<std::pair<uint32_t,uint32_t> >::iterator aa = sym_table.begin();
+std::vector<std::pair<uint32_t,uint32_t> >::iterator bb = sym_table.end();
+
+//sort(aa, bb, my_sort123);
+//my_sort(aa,bb);
+
+  for(std::vector<std::pair<uint32_t,uint32_t> >::iterator it = sym_table.begin() ;  it != sym_table.end() ; it++)
+{
+      s2e()->getMessagesStream(state) << "3.symbolic address: " << std::hex << it->first << " size: " << it->second << std::endl; 
+}
+
+
+*/
+
+
+
+
+
+
+//s2e()->getMessagesStream(state) << "conere??  " << state->getSymbolicRegistersMask() << std::endl;
+//printf("concret??????????????? %d\n",s2e()->getExecutor()->isRamSharedConcrete(state,state->getHostAddress(address-5)));
+   
+
+//ObjectPair op = state->addressSpace.findObject(hostAddress & S2E_RAM_OBJECT_MASK);  
+
+//s2e()->getMessagesStream(state) << "okok "<<op.second->isByteConcrete(hostAddress & ~S2E_RAM_OBJECT_MASK) << std::endl;
+//s2e()->getMessagesStream(state)  << "symbolic???? " << op.first->isSharedConcrete << std::endl;
+//op.second.isByteConcrete(address);         
+
+ //const Array *array = new Array(nameStr, size);
+            //UpdateList ul(array, 0);
+          
+//state->addConstraint( klee::EqExpr::create(symb[12], klee::ConstantExpr::alloc(0xff,klee::Expr::Int8)));            
+                //state->addConstraint( EqExpr::create(symb[0], ConstantExpr::alloc(tainted_value & 0x000000ff,Expr::Int8)));
+                //state->addConstraint( EqExpr::create(symb[1], ConstantExpr::alloc((tainted_value & 0x0000ff00) >> 8,Expr::Int8)));
+                //state->addConstraint( EqExpr::create(symb[2], ConstantExpr::alloc((tainted_value & 0x00ff0000) >> 16,Expr::Int8)));
+                //state->addConstraint( EqExpr::create(symb[3], ConstantExpr::alloc((tainted_value & 0xff000000) >> 24,Expr::Int8)));
+            //s2e()->getWarningsStream(state) << "readexpr : " << ReadExpr::create(ul,ConstantExpr::alloc(0,Expr::Int32)) << endl;
+ state->dumpX86State(s2e()->getWarningsStream());
+
+//uint32_t bp_value;
+ //state->readMemoryConcrete(state->getBp(), &bp_value, 4);
+// s2e()->getWarningsStream() << "ESP:  " << state->getSp() << std::endl;
+// state->dumpStack(128,state->getSp());
+              //state->dumpStack(20, state->getSp());
+//uint64_t ret;
+//state->getReturnAddress(&ret);
+// state->readMemoryConcrete(ret, &ret, 4);
+//printf("???? %x   \n",bp_value);
+            if(open == true)
+            {
+              uint64_t bp_value;
+              //state->getReturnAddress(&rett);
+
+              state->readMemoryConcrete(state->getBp(), &bp_value, 4);
+              //printf("=== Pc = %p , Bp = %p , addreee = %p, target=%p, dis=%d\n", state->getPc(), state->getBp(), address, address+12 ,address-bp_value);
+              state->dumpStack(20, state->getSp());
+              int dis = bp_value - address;
+              if(size >= dis + 8 )
+              {
+                state->addConstraint( klee::EqExpr::create(state->readMemory8(bp_value+4), klee::ConstantExpr::alloc(0x8048424 & 0x000000ff,klee::Expr::Int8)));
+                state->addConstraint( klee::EqExpr::create(state->readMemory8(bp_value+5), klee::ConstantExpr::alloc((0x8048424 & 0x0000ff00) >> 8,klee::Expr::Int8)));
+state->addConstraint( klee::EqExpr::create(state->readMemory8(bp_value+6), klee::ConstantExpr::alloc((0x8048424 & 0x00ff0000) >> 16,klee::Expr::Int8)));
+state->addConstraint( klee::EqExpr::create(state->readMemory8(bp_value+7), klee::ConstantExpr::alloc((0x8048424 & 0xff000000) >> 24,klee::Expr::Int8)));
+                //state->addConstraint( EqExpr::create(symb[dis+4], ConstantExpr::alloc(tainted_value & 0x000000ff,Expr::Int8)));
+                //state->addConstraint( EqExpr::create(symb[dis+5], ConstantExpr::alloc((tainted_value & 0x0000ff00) >> 8,Expr::Int8)));
+                //state->addConstraint( EqExpr::create(symb[dis+6], ConstantExpr::alloc((tainted_value & 0x00ff0000) >> 16,Expr::Int8)));
+                //state->addConstraint( EqExpr::create(symb[dis+7], ConstantExpr::alloc((tainted_value & 0xff000000) >> 24,Expr::Int8)));
+                //state->addConstraint( EqExpr::create(ConcatExpr::create4(symb[3],symb[2],symb[1],symb[0]), ConstantExpr::alloc(99,Expr::Int32)));
+              }
             }
             break;
         }
@@ -141,7 +337,7 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
                 uint32_t messagePtr;
                 bool ok = true;
                 klee::ref<klee::Expr> status = state->readCpuRegister(CPU_OFFSET(regs[R_EAX]), klee::Expr::Int32);
-                ok &= state->readCpuRegisterConcrete(CPU_OFFSET(regs[R_EBX]), &messagePtr, 4);
+                ok &= state->readCpuRegisterConcrete(CPU_OFFSET(regs[R_ECX]), &messagePtr, 4);
 
                 if (!ok) {
                     s2e()->getWarningsStream(state)
@@ -236,8 +432,8 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
                 break;
             }
 
-        case 9: state->enableForking(); break;
-        case 10: state->disableForking(); break;
+        case 9: state->/*enableSymbolicExecution()*/enableForking(); break;
+        case 10: state->/*disableSymbolicExecution()*/disableForking(); break;
 
 
         case 0x10: { /* print message */
@@ -272,12 +468,15 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
         case 0x20: /* concretize */
         case 0x21: { /* replace an expression by one concrete example */
             uint32_t address, size;
+            uint32_t target;
 
             bool ok = true;
             ok &= state->readCpuRegisterConcrete(CPU_OFFSET(regs[R_EAX]),
                                                  &address, 4);
             ok &= state->readCpuRegisterConcrete(CPU_OFFSET(regs[R_EBX]),
                                                  &size, 4);
+            ok &= state->readCpuRegisterConcrete(CPU_OFFSET(regs[R_ECX]),
+                                                 &target, 4);
 
             if(!ok) {
                 s2e()->getWarningsStream(state)
@@ -293,7 +492,8 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
                         expr = s2e()->getExecutor()->toConstant(*state, expr, "request from guest");
                     else /* example */
                         expr = s2e()->getExecutor()->toConstantSilent(*state, expr);
-                    if(!state->writeMemory(address + i, expr)) {
+                    if(!state->writeMemory(target + i, expr)) {
+                    //if(!state->writeMemory(address + i, expr)) {
                         s2e()->getWarningsStream(state)
                             << "Can not write to memory"
                             << " at " << hexval(address + i) << std::endl;

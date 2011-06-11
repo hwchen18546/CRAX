@@ -831,6 +831,11 @@ Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
 	  klee_warning_once(0, "skipping fork (max-forks reached)");
 
         TimerStatIncrementer timer(stats::forkTime);
+        /*for(int iii=0 ; iii<10 ; iii++)
+        {
+          printf("KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK %d\n",theRNG.getBool());
+          sleep(3);
+        }*/
         if (theRNG.getBool()) {
           addConstraint(current, condition);
           res = Solver::True;        
@@ -1106,16 +1111,19 @@ Executor::toConstant(ExecutionState &state,
   bool success = solver->getValue(state, e, value);
   assert(success && "FIXME: Unhandled solver failure");
   (void) success;
+
     
   std::ostringstream os;
   os << "silently concretizing (reason: " << reason << ") expression " << e 
      << " to value " << value 
      << " (" << (*(state.pc)).info->file << ":" << (*(state.pc)).info->line << ")";
+
+  //os << " value: " << e;
       
   klee_warning_external(reason, "%s", os.str().c_str());
-
+  
   addConstraint(state, EqExpr::create(e, value));
-    
+  
   return value;
 }
 
@@ -1474,7 +1482,7 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
           terminateStateOnExecError(state, "return void when caller expected a result");
         }
       }
-    }      
+    }     
     break;
   }
   case Instruction::Unwind: {
@@ -2992,6 +3000,10 @@ void Executor::executeMemoryOperation(ExecutionState &state,
       value = state.constraints.simplifyExpr(value);
   }
 
+          //        ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
+          //if((uint64_t )state.eip == CE->getZExtValue() )
+          //if(state->getPc() == 0x8048575)
+          //{cout << "oh~ my ~ god~ " << value << std::endl;}
   // fast path: single in-bounds resolution
   ObjectPair op;
   bool success;
@@ -3040,10 +3052,52 @@ void Executor::executeMemoryOperation(ExecutionState &state,
                   offset = toConstantSilent(state, offset);
                   value  = toConstantSilent(state,  value);
               } else {
+                  //S2EExecutionState *s2eState = (S2EExecutionState * ) state;
+                  //uint8_t *eip_address = (uint8_t*) m_cpuSystemState->address - CPU_OFFSET(eip);
+                  //printf("address = %x\n",address);
+                  //std::cout << std::hex << "eip: " << state.eip << std::endl;
+                  std::stringstream ss;
+                  ss << address;
+                  //#include <string>
+                  std::string str(ss.str());
+                  //const char *x = str.c_str();
+
+
+                  ref<Expr> e = simplifyExpr(state, value);                      
+                  e = state.constraints.simplifyExpr(e);           
+                  //if (ConstantExpr *CE = dyn_cast<ConstantExpr>(e))
+
+                  //std::cout <<  "eip: " << state.eip << std::endl;
+                  ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
+                  //std::cout <<  "address: " <<std::hex<< CE->getZExtValue()<< std::endl;
+                  //std::cout <<  "value : " << value->getWidth()<< std::endl;
+
+                  //ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
+
+
+                  if((uint64_t )state.eip == CE->getZExtValue() && dyn_cast<ConstantExpr>(e) == NULL)
+                  {
+                    //m_s2e->getCorePlugin();0
+                    interpreterHandler->handlerCourruptEip(state, value);
+                    //printf("WWIIINNNNN\n");
+                    //addConstraint(state, klee::EqExpr::create(value, klee::ConstantExpr::alloc(0x80484f5 ,klee::Expr::Int32)));
+                    //addConstraint(state,( klee::EqExpr::create(value, klee::ConstantExpr::alloc(0x8048535 ,klee::Expr::Int32)));
+                    //cout << "eip: " << (uint64_t)state.eip << " value: " << value << " kid: " << dyn_cast<ConcatExpr>(value)->getLeft() << " width: " << (value.get())->getWidth() << std::endl;
+                  } 
+
+    
+ 
                   offset = toConstant(state, offset, "write to always concrete memory");
-                  value  = toConstant(state,  value, "write to always concrete memory");
+                  value  = toConstant(state,  value, str.c_str());//"write to always concrete memory");
+                  //if((uint64_t )state.eip == CE->getZExtValue() && dyn_cast<ConstantExpr>(e) == NULL)
+                    //cout << "vvvv: " << value << std::endl;
               }
           }
+                 // ref<Expr> e = simplifyExpr(state, value);                      
+                 // e = state.constraints.simplifyExpr(e);           
+                 // ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
+          //if((uint64_t )state.eip == CE->getZExtValue() )
+          //{cout << "oh~ my ~ god~ " << value << std::endl;}
           wos->write(offset, value);
         }          
       } else {

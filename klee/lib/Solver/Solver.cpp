@@ -77,6 +77,7 @@ bool Solver::evaluate(const Query& query, Validity &result) {
 }
 
 bool SolverImpl::computeValidity(const Query& query, Solver::Validity &result) {
+
   bool isTrue, isFalse;
   if (!computeTruth(query, isTrue))
     return false;

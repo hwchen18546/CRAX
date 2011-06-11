@@ -168,7 +168,6 @@ void s2e_on_translate_block_start(
     ExecutionSignal *signal = static_cast<ExecutionSignal*>(
                                     tb->s2e_tb->executionSignals.back());
     assert(signal->empty());
-
     try {
         s2e->getCorePlugin()->onTranslateBlockStart.emit(signal, state, tb, pc);
         if(!signal->empty()) {

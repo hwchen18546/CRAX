@@ -80,6 +80,19 @@ static inline void s2e_print_expression(const char* name, int expression)
     );
 }
 
+static inline void s2e_print_memory(void* buf, int size, const char* name)
+{
+    __asm__ __volatile__(
+	"pushl %%ebx\n"
+	"movl %%edx, %%ebx\n"
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x08, 0x00, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+	"popl %%ebx\n"
+        : : "a" (buf), "d" (size), "c" (name) : "memory"        
+    );
+}
+
 /** Enable forking on symbolic conditions. */
 static inline void s2e_enable_forking(void)
 {
@@ -111,35 +124,80 @@ static inline unsigned s2e_get_path_id(void)
 }
 
 /** Fill buffer with unconstrained symbolic values. */
-static inline void s2e_make_symbolic(void* buf, int size, const char* name)
+static inline void s2e_make_symbolic(void* buf, int size, const char* name, int knownLength)
 {
     __asm__ __volatile__(
+	"pushl %%ebx\n"
+	"movl %%esi, %%ebx\n"
         ".byte 0x0f, 0x3f\n"
         ".byte 0x00, 0x03, 0x00, 0x00\n"
         ".byte 0x00, 0x00, 0x00, 0x00\n"
-        : : "a" (buf), "b" (size), "c" (name) : "memory"
+	"popl %%ebx\n"
+        : : "a" (buf), "S" (size), "c" (name), "d" (knownLength) : "memory"
     );
 }
+
+/*
+inline void make_stdin_symbolic(int size)
+{
+  #include <malloc.h> 
+  char *p;
+
+  do {
+   p = (char*)malloc(1024);
+   //if (p == NULL)
+     //return (EOF);
+  } while (0);
+
+
+  stdin->_flags2 |= 16;
+  stdin->_IO_buf_base = p;
+  stdin->_IO_buf_end = p+1024;
+  //stdin->_flags |= 1;
+
+  stdin->_IO_read_ptr = stdin->_IO_write_ptr;
+  stdin->_IO_write_base = stdin->_IO_write_ptr = stdin->_IO_write_end = stdin->_IO_read_ptr;
+
+  stdin->_IO_read_base = stdin->_IO_read_ptr = stdin->_IO_buf_base;
+  stdin->_IO_read_end = stdin->_IO_buf_base + size;
+  stdin->_IO_buf_end = stdin->_IO_read_end ;
+  // *(stdin->_IO_read_ptr + 3) = '\n';
+  //strcpy(stdin->_IO_read_ptr + 2, "\n");
+  *(stdin->_IO_read_end + 1) = EOF;
+
+  stdin->_flags |= 0x200;
+
+  stdin->_mode = -1;
+
+  s2e_make_symbolic(stdin->_IO_read_ptr, size, "stdin", 0);
+}
+*/
 
 /** Concretize the expression. */
 static inline void s2e_concretize(void* buf, int size)
 {
     __asm__ __volatile__(
+	"pushl %%ebx\n"
+	"movl %%edx, %%ebx\n"
         ".byte 0x0f, 0x3f\n"
         ".byte 0x00, 0x20, 0x00, 0x00\n"
         ".byte 0x00, 0x00, 0x00, 0x00\n"
-        : : "a" (buf), "b" (size) : "memory"
+	"popl %%ebx\n"
+        : : "a" (buf), "d" (size) : "memory"
     );
 }
 
 /** Get example value for expression (without adding state constraints). */
-static inline void s2e_get_example(void* buf, int size)
+static inline void s2e_get_example(void* buf, int size, void* target)
 {
     __asm__ __volatile__(
+	"pushl %%ebx\n"
+	"movl %%edx, %%ebx\n"
         ".byte 0x0f, 0x3f\n"
         ".byte 0x00, 0x21, 0x00, 0x00\n"
         ".byte 0x00, 0x00, 0x00, 0x00\n"
-        : : "a" (buf), "b" (size) : "memory"
+	"popl %%ebx\n"
+        : : "a" (buf), "d" (size), "c" (target) : "memory"
     );
 }
 
@@ -147,10 +205,13 @@ static inline void s2e_get_example(void* buf, int size)
 static inline void s2e_kill_state(int status, const char* message)
 {
     __asm__ __volatile__(
+	"pushl %%ebx\n"
+	"movl %%edx, %%ebx\n"
         ".byte 0x0f, 0x3f\n"
         ".byte 0x00, 0x06, 0x00, 0x00\n"
         ".byte 0x00, 0x00, 0x00, 0x00\n"
-        : : "a" (status), "b" (message)
+	"popl %%ebx\n"
+        : : "a" (status), "d" (message)
     );
 }
 
@@ -158,10 +219,13 @@ static inline void s2e_load_module(const char* name,
         unsigned int loadbase, unsigned int size)
 {
     __asm__ __volatile__(
+	"pushl %%ebx\n"
+	"movl %%edx, %%ebx\n"
         ".byte 0x0f, 0x3f\n"
         ".byte 0x00, 0xAA, 0x00, 0x00\n"
         ".byte 0x00, 0x00, 0x00, 0x00\n"
-        : : "a" (name), "b" (loadbase), "c" (size)
+	"popl %%ebx\n"
+        : : "a" (name), "d" (loadbase), "c" (size)
     );
 }
 
@@ -268,10 +332,13 @@ static inline int s2e_read(int fd, char* buf, int count)
 {
     int res;
     __asm__ __volatile__(
+	"pushl %%ebx\n"
+	"movl %%esi, %%ebx\n"
         ".byte 0x0f, 0x3f\n"
         ".byte 0x00, 0xEE, 0x02, 0x00\n"
         ".byte 0x00, 0x00, 0x00, 0x00\n"
-        : "=a" (res) : "a" (-1), "b" (fd), "c" (buf), "d" (count)
+	"popl %%ebx\n"
+        : "=a" (res) : "a" (-1), "S" (fd), "c" (buf), "d" (count)
     );
     return res;
 }

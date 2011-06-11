@@ -41,7 +41,14 @@
 #include <s2e/Plugin.h>
 #include <s2e/Plugins/CorePlugin.h>
 #include <s2e/S2EExecutionState.h>
+#include <algorithm>
+#include <vector>
 
+#include <s2e/ConfigFile.h>
+    //bool my_sort123(const std::pair<uint32_t,uint32_t> a,const std::pair<uint32_t,uint32_t> b)
+   // {
+     // return a.second > b.second;
+    //}
 namespace s2e {
 namespace plugins {
 
@@ -49,12 +56,17 @@ class BaseInstructions : public Plugin
 {
     S2E_PLUGIN
 public:
+    uint32_t tainted_value;
+    bool open;
+    ConfigFile::integer_list exclude;
+
     BaseInstructions(S2E* s2e): Plugin(s2e) {}
 
     void initialize();
    
     void handleBuiltInOps(S2EExecutionState* state, 
         uint64_t opcode);
+
 
 private:
     void onCustomInstruction(S2EExecutionState* state, 

@@ -1,9 +1,14 @@
 docs
-docs/Plugins/WindowsInterceptor
 docs/Plugins
+docs/Plugins/WindowsInterceptor
 docs/Tools
 docs/Windows
 docs/img
+docs/sample
+guest/include
+guest
+guest/s2eget
+guest/stp
 klee
 klee/autoconf
 klee/docs/SMT-COMP
