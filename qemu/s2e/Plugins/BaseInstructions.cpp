@@ -173,7 +173,7 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
              //enum AddresstType addressType = VirtualAddress;
             //int64_t hostAddress =  state->getHostAddress(address-1);
 
-state->dumpStack(40,0x08048000);
+//state->dumpStack(40,0x08048000);
 
 //ObjectPair op;  
 //bool success;   
@@ -287,7 +287,7 @@ std::vector<std::pair<uint32_t,uint32_t> >::iterator bb = sym_table.end();
                 //state->addConstraint( EqExpr::create(symb[2], ConstantExpr::alloc((tainted_value & 0x00ff0000) >> 16,Expr::Int8)));
                 //state->addConstraint( EqExpr::create(symb[3], ConstantExpr::alloc((tainted_value & 0xff000000) >> 24,Expr::Int8)));
             //s2e()->getWarningsStream(state) << "readexpr : " << ReadExpr::create(ul,ConstantExpr::alloc(0,Expr::Int32)) << endl;
- state->dumpX86State(s2e()->getWarningsStream());
+ //state->dumpX86State(s2e()->getWarningsStream());
 
 //uint32_t bp_value;
  //state->readMemoryConcrete(state->getBp(), &bp_value, 4);
