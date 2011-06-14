@@ -61,6 +61,12 @@ public:
     return constraints.size();
   }
 
+  void pop_back()
+  {
+    if(!empty())
+      constraints.pop_back();
+  }
+
   bool operator==(const ConstraintManager &other) const {
     return constraints == other.constraints;
   }

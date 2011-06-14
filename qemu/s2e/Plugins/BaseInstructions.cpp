@@ -173,7 +173,7 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
              //enum AddresstType addressType = VirtualAddress;
             //int64_t hostAddress =  state->getHostAddress(address-1);
 
-//state->dumpStack(40,0x08048000);
+//state->dumpStack(40,state->getSp());
 
 //ObjectPair op;  
 //bool success;   
