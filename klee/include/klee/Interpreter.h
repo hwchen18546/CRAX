@@ -46,7 +46,7 @@ public:
                                const char *err, 
                                const char *suffix) = 0;
 
-  virtual void handlerCourruptEip(ExecutionState &state, ref<Expr> value) = 0;
+  virtual void handlerCorruptEip(ExecutionState &state, ref<Expr> value, ref<Expr> target) = 0;
 };
 
 class Interpreter {

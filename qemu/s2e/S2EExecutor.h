@@ -79,7 +79,7 @@ public:
     /* klee-related function */
     void processTestCase(const klee::ExecutionState &state,
                          const char *err, const char *suffix);
-    void handlerCourruptEip(klee::ExecutionState &state, klee::ref<klee::Expr> value);
+    void handlerCorruptEip(klee::ExecutionState &state, klee::ref<klee::Expr> value, klee::ref<klee::Expr> target);
 };
 
 

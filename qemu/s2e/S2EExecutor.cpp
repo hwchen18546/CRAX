@@ -177,6 +177,13 @@ namespace {
     ConcretizeIoWrites("concretize-io-writes",
             cl::desc("Concretize symbolic I/O writes"),
             cl::init(true));
+
+    //The logs may be flooded with messages when switching execution mode.
+    //This option allows disabling printing mode switches.
+    cl::opt<bool>
+    PrintModeSwitch("print-mode-switch",
+            cl::desc("Print message when switching from symbolic to concrete and vice versa"),
+            cl::init(false));
 }
 
 extern "C" {
@@ -321,11 +328,12 @@ void S2EHandler::processTestCase(const klee::ExecutionState &state,
     }
 }
 
-void S2EHandler::handlerCourruptEip(klee::ExecutionState &state, klee::ref<klee::Expr> value)
+void S2EHandler::handlerCorruptEip(klee::ExecutionState &state, klee::ref<klee::Expr> value, klee::ref<klee::Expr> target)
 {
   S2EExecutionState *s = dynamic_cast<S2EExecutionState *>(&state);
-  m_s2e->getWarningsStream(s) << "[*] Eip is courrupted. vaule: " << value << std::endl;
-  m_s2e->getCorePlugin()->onCourruptEip.emit(s, value);
+  //m_s2e->getWarningsStream(s) << "[*] Eip is courrupted. vaule: " << value << std::endl;
+  m_s2e->getCorePlugin()->onCorruptEip.emit(s, value, target);
+  //s2e_on_corrput_eip(s, value, target);
 }
 
 void S2EExecutor::handlerTraceMemoryAccess(Executor* executor,
@@ -413,7 +421,7 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
     S2EExecutor* s2eExecutor = static_cast<S2EExecutor*>(executor);
     S2EExecutionState* s2eState = static_cast<S2EExecutionState*>(state);
 
-    assert(args.size() == 3);
+    //assert(args.size() == 3);
     assert(isa<klee::ConstantExpr>(args[1]));
     assert(isa<klee::ConstantExpr>(args[2]));
 
@@ -421,9 +429,9 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
     uint64_t max = cast<klee::ConstantExpr>(args[2])->getZExtValue();
     assert(min <= max);
 
+    //g_s2e->getDebugStream(s2eState) << "args[0] = " << args[0] << " args[1] = " << min << " args[2] = " << max << " args[3] = " << args[3] << std::endl;
     ref<Expr> expr = args[0];
     Expr::Width width = expr->getWidth();
-//g_s2e->getDebugStream(s2eState) << "args[0] = " << expr << std::endl;
     // XXX: this might be expensive...
     expr = s2eExecutor->simplifyExpr(*state, expr);
     expr = state->constraints.simplifyExpr(expr);
@@ -436,7 +444,15 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
         s2eExecutor->bindLocal(target, *state, expr);
         return;
     }
+ 
+   uint64_t isWrite = cast<klee::ConstantExpr>(args[3])->getZExtValue();
+   //uint64_t data = cast<klee::ConstantExpr>(args[4])->getZExtValue();
+   if(isWrite == 1)
+     //s2eExecutor->m_s2e->getCorePlugin()->onPortAccess.emit(
+       // s2eState, expr, value, isWrite);            
 
+     //S2EHandler::handlerCorruptEip(*state, expr, value); 
+    s2eExecutor->m_s2e->getCorePlugin()->onCorruptEip.emit(s2eState, args[4], expr);
    //g_s2e->getExecutor()->terminateStateEarly(*s2eState,"forkAndConcretize"); 
     g_s2e->getDebugStream(s2eState) << "forkAndConcretize(" << expr << ")" << std::endl;
  
@@ -889,7 +905,10 @@ void S2EExecutor::registerCpu(S2EExecutionState *initialState,
                       /* isReadOnly = */ false,
                       /* isUserSpecified = */ false,
                       /* isSharedConcrete = */ false);
-
+//std::cout << "size of: " << sizeof(target_ulong) << std::endl;
+//std::cout << "ebp: " <<  sizeof(target_ulong)  << std::endl;
+//std::cout << "esp: " <<  (cpuEnv + 4)  << std::endl;
+    
     initialState->m_cpuRegistersState->setName("CpuRegistersState");
 
     /* Add the rest of the structure as concrete-only area */
@@ -901,6 +920,8 @@ void S2EExecutor::registerCpu(S2EExecutionState *initialState,
                       /* isUserSpecified = */ true,
                       /* isSharedConcrete = */ true);
     initialState->eip =  ((uint8_t*)cpuEnv) + offsetof(CPUX86State,eip);
+    initialState->ebp =  ((uint8_t*)cpuEnv) + sizeof(target_ulong)*5;
+    initialState->esp =  ((uint8_t*)cpuEnv) + sizeof(target_ulong)*4;
     //std::cout << " eip: "<< initialState->eip << std::endl;
     initialState->m_cpuSystemState->setName("CpuSystemState");
 
@@ -1039,9 +1060,11 @@ void S2EExecutor::readRamConcreteCheck(S2EExecutionState *state,
 
         for(uint64_t i=0; i<size; ++i) {
             if(!op.second->readConcrete8(page_offset+i, buf+i)) {
+               if(PrintModeSwitch) {
                 m_s2e->getMessagesStream(state)
                         << "Switching to KLEE executor at pc = "
                         << hexval(state->getPc()) <<  std::endl;
+               }
 //printf("%x\n",&buf);
                 state->m_startSymbexAtPC = state->getPc();
                 // XXX: what about regs_to_env ?
@@ -1230,9 +1253,11 @@ void S2EExecutor::switchToConcrete(S2EExecutionState *state)
            wos->getConcreteStore(true), wos->size);
     static_cast<S2EExecutionState*>(state)->m_runningConcrete = true;
 
+    if(PrintModeSwitch) {
     m_s2e->getMessagesStream(state)
             << "Switched to concrete execution at pc = "
             << hexval(state->getPc()) << std::endl;
+    }
 }
 
 void S2EExecutor::switchToSymbolic(S2EExecutionState *state)
@@ -1250,9 +1275,11 @@ void S2EExecutor::switchToSymbolic(S2EExecutionState *state)
            (void*) state->m_cpuRegistersState->address, wos->size);
     state->m_runningConcrete = false;
 
+    if(PrintModeSwitch) {
     m_s2e->getMessagesStream(state)
             << "Switched to symbolic execution at pc = "
             << hexval(state->getPc()) << std::endl;
+    }
 }
 
 void S2EExecutor::jumpToSymbolic(S2EExecutionState *state)

@@ -329,7 +329,9 @@ unsigned klee_get_value(unsigned expr);
 #if defined(S2E_LLVM_LIB)
 uint64_t tcg_llvm_fork_and_concretize(uint64_t value,
                                       uint64_t knownMin,
-                                      uint64_t knownMax);
+                                      uint64_t knownMax,
+                                      uint8_t isWrite,
+                                      uint64_t source_value);
 void tcg_llvm_trace_memory_access(uint64_t vaddr, uint64_t haddr,
                                   uint64_t value, uint32_t bits,
                                   uint8_t isWrite, uint8_t isIo);

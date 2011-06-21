@@ -3047,8 +3047,34 @@ void Executor::executeMemoryOperation(ExecutionState &state,
                                 "readonly.err");
         } else {
           ObjectState *wos = state.addressSpace.getWriteable(mo, os);
+/*                  ref<Expr> e = simplifyExpr(state, value); 
+                  e = state.constraints.simplifyExpr(e);    
+
+                  ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
+
+                  if((uint64_t )state.ebp == CE->getZExtValue() && dyn_cast<ConstantExpr>(e) == NULL)
+                  {
+                     std::cout << "EBBBBBBP " << e<< std::endl;
+                  }
+                  else if((uint64_t )state.esp == CE->getZExtValue() && dyn_cast<ConstantExpr>(e) == NULL)
+                  {
+                     std::cout << "ESSSSSSSP " << e<< std::endl;
+
+                  }
+*/
           if(mo->isSharedConcrete) {
               if(mo->isValueIgnored) {
+             
+//                  ref<Expr> e = simplifyExpr(state, value); 
+//                  e = state.constraints.simplifyExpr(e);    
+
+ //                 ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
+
+ //                 if(/*(uint64_t )state.ebp == CE->getZExtValue() &&*/ dyn_cast<ConstantExpr>(e) == NULL)
+ //                 {
+  //                   std::cout << "EBBBBBBP " << CE->getZExtValue()<< std::endl;
+ //                 }
+                   
                   offset = toConstantSilent(state, offset);
                   value  = toConstantSilent(state,  value);
               } else {
@@ -3077,13 +3103,14 @@ void Executor::executeMemoryOperation(ExecutionState &state,
 
                   if((uint64_t )state.eip == CE->getZExtValue() && dyn_cast<ConstantExpr>(e) == NULL)
                   {
+                    //std::cout << "EIP : " << (uint64_t)state.eip << std::endl;
                     //m_s2e->getCorePlugin();0
-                    interpreterHandler->handlerCourruptEip(state, value);
+                    interpreterHandler->handlerCorruptEip(state, value, address);
                     //printf("WWIIINNNNN\n");
                     //addConstraint(state, klee::EqExpr::create(value, klee::ConstantExpr::alloc(0x80484f5 ,klee::Expr::Int32)));
                     //addConstraint(state,( klee::EqExpr::create(value, klee::ConstantExpr::alloc(0x8048535 ,klee::Expr::Int32)));
                     //cout << "eip: " << (uint64_t)state.eip << " value: " << value << " kid: " << dyn_cast<ConcatExpr>(value)->getLeft() << " width: " << (value.get())->getWidth() << std::endl;
-                  } 
+                  }
 
     
  
@@ -3093,6 +3120,23 @@ void Executor::executeMemoryOperation(ExecutionState &state,
                     //cout << "vvvv: " << value << std::endl;
               }
           }
+                  ref<Expr> e = simplifyExpr(state, value); 
+                  e = state.constraints.simplifyExpr(e);    
+
+                  ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
+
+                  if(((uint64_t )state.ebp == CE->getZExtValue() || (uint64_t )state.esp == CE->getZExtValue()) && dyn_cast<ConstantExpr>(e) == NULL)
+                  {
+                    interpreterHandler->handlerCorruptEip(state, value, address);
+                    // std::cout << "EBBBBBBP " << e<< std::endl;
+                  }
+                  //else if((uint64_t )state.esp == CE->getZExtValue() && dyn_cast<ConstantExpr>(e) == NULL)
+                  //{
+                    //interpreterHandler->handlerCorruptEip(state, value, CE->getZExtValue());
+                    // std::cout << "ESSSSSSSP " << e<< std::endl;
+
+                  //}
+
                  // ref<Expr> e = simplifyExpr(state, value);                      
                  // e = state.constraints.simplifyExpr(e);           
                  // ConstantExpr *CE = dyn_cast<ConstantExpr>(address);

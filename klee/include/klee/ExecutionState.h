@@ -112,6 +112,8 @@ public:
   void removeFnAlias(std::string fn);
  
   void *  eip;
+  void *  ebp;
+  void *  esp;
  
 private:
   ExecutionState() : fakeState(false), underConstrained(0),
