@@ -857,6 +857,9 @@ void S2EExecutionState::dumpX86State(std::ostream &os) const
     os << "ESP=0x" << readCpuRegister(offsetof(CPUState, regs[R_ESP]), klee::Expr::Int32) << std::endl;
     os << "EIP=0x" << readCpuState(offsetof(CPUState, eip), 32) << std::endl;
     os << "CR2=0x" << readCpuState(offsetof(CPUState, cr[2]), 32) << std::endl;
+    os << "cc_op=0x" << readCpuRegister(offsetof(CPUState, cc_op), klee::Expr::Int32) << std::endl;
+    os << "cc_src=0x" << readCpuRegister(offsetof(CPUState, cc_src), klee::Expr::Int32) << std::endl;
+    os << "cc_dst=0x" << readCpuRegister(offsetof(CPUState, cc_dst), klee::Expr::Int32) << std::endl;
     os << "ES=0x" << readCpuState(offsetof(CPUState, segs[R_ES].selector), 32) << std::endl;
     //os << "ESi222=0x" << env->segs[R_ES]->name << std::endl;
     os << "CS=0x" << readCpuState(offsetof(CPUState, segs[R_CS].selector), 32) << std::endl;

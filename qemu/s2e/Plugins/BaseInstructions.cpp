@@ -139,15 +139,6 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
                     << " of size " << hexval(size)
                     << " with name '" << nameStr << "'" << std::endl;
 //address++;
-// klee::ObjectPair op4;
-//int64_t hostAddress3 =  state->getHostAddress(state->getSp());
-//if(hostAddress3 !=  (uint64_t) -1)
-//{
-  //op4 = state->addressSpace.findObject(hostAddress3 & S2E_RAM_OBJECT_MASK);
-  //!op4.second->isByteConcrete(hostAddress4 & ~S2E_RAM_OBJECT_MASK)
-  //s2e()->getMessagesStream(state) << "size " << op4.second->concreteMask << std::endl;
-  //state->dumpStack(op4.second->size,state->getSp());
-//}
 //size--;
             vector<ref<Expr> > symb = state->createSymbolicArray(size, nameStr);
             for(unsigned i = 0; i < size; ++i) {
@@ -157,11 +148,27 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
                         << " at " << hexval(address + i)
                         << ": can not write to memory" << std::endl;
                 }
-               if( i < knownLength)
+//state->constraints.concolicSize = size;
+                if(s2e()->getExecutor()->getConcolicMode())
+                {
+                  klee::ObjectPair op;
+                  int64_t hostAddress =  state->getHostAddress(address+i);
+                  if(hostAddress !=  (uint64_t) -1)
+                  {
+                    op = state->addressSpace.findObject(hostAddress & S2E_RAM_OBJECT_MASK);
+                    s2e()->getMessagesStream(state) << "concrete value: " << op.second->concreteStore[hostAddress & ~S2E_RAM_OBJECT_MASK] << std::endl;          
+                    state->addConstraint( EqExpr::create(symb[i], ConstantExpr::alloc(op.second->concreteStore[hostAddress & ~S2E_RAM_OBJECT_MASK],Expr::Int8)));
+                    state->constraints.concolicSize++;
+                    s2e()->getWarningsStream(state) << "concolicSize: " <<state->constraints.concolicSize << std::endl; 
+                  }
+                }
+    
+               else if( i < knownLength)
                {
                  for(unsigned int j = 0 ; j<exclude.size() ; j++)
                    state->addConstraint( NotExpr::create(EqExpr::create(symb[i], ConstantExpr::alloc(exclude[j],Expr::Int8))));
-               }  
+               }
+
                //if(i==0)
                //  state->addConstraint( EqExpr::create(symb[i], ConstantExpr::alloc(0x2f,Expr::Int8)));
                //else if(i != size -1) 
@@ -172,6 +179,8 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
                //  state->addConstraint( EqExpr::create(symb[size-1], ConstantExpr::alloc(0x0,Expr::Int8)));
              //enum AddresstType addressType = VirtualAddress;
             //int64_t hostAddress =  state->getHostAddress(address-1);
+
+//s2e()->getWarningsStream(state) << "concolicSize: " << state->constraints.concolicSize << std::endl;
 
 //state->dumpStack(40,state->getSp());
 
@@ -337,8 +346,13 @@ state->addConstraint( klee::EqExpr::create(state->readMemory8(bp_value+7), klee:
                 uint32_t messagePtr;
                 bool ok = true;
                 klee::ref<klee::Expr> status = state->readCpuRegister(CPU_OFFSET(regs[R_EAX]), klee::Expr::Int32);
-                ok &= state->readCpuRegisterConcrete(CPU_OFFSET(regs[R_ECX]), &messagePtr, 4);
+                ok &= state->readCpuRegisterConcrete(CPU_OFFSET(regs[R_EBX]), &messagePtr, 4);
 
+if(s2e()->getExecutor()->getConcolicMode())
+{
+state->constraints.erase(state->constraints.concolicSize);
+state->constraints.concolicSize=0;
+}
                 if (!ok) {
                     s2e()->getWarningsStream(state)
                         << "ERROR: symbolic argument was passed to s2e_op kill state "
@@ -350,6 +364,14 @@ state->addConstraint( klee::EqExpr::create(state->readMemory8(bp_value+7), klee:
                             << "Error reading file name string from the guest" << std::endl;
                     }
                 }
+
+
+                std::vector< ref<Expr> >::const_iterator it = state->constraints.begin();
+                for(; it != state->constraints.end() ;it++)
+                {
+                  s2e()->getWarningsStream(state) << "constraint : " << *it << std::endl;
+                }
+
 
                 //Kill the current state
                 s2e()->getMessagesStream(state) << "Killing state "  << state->getID() << std::endl;
@@ -408,7 +430,7 @@ state->addConstraint( klee::EqExpr::create(state->readMemory8(bp_value+7), klee:
                            "print_expression opcode" << std::endl;
                     break;
                 }
-
+/*
                 std::string nameStr = "defstring";
                 if(!name || !state->readString(name, nameStr)) {
                     s2e()->getWarningsStream(state)
@@ -428,7 +450,8 @@ state->addConstraint( klee::EqExpr::create(state->readMemory8(bp_value+7), klee:
                         s2e()->getMessagesStream() << res << std::endl;
                     }
                 }
-
+*/
+                state->dumpX86State(s2e()->getWarningsStream());
                 break;
             }
 

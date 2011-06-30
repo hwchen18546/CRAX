@@ -241,6 +241,9 @@ public:
 
     void queueStateForMerge(S2EExecutionState *state);
 
+    bool getConcolicMode();
+    
+
 protected:
     static void handlerTraceMemoryAccess(klee::Executor* executor,
                                     klee::ExecutionState* state,

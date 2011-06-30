@@ -70,15 +70,20 @@ bool ConstraintManager::rewriteConstraints(ExprVisitor &visitor) {
          it = old.begin(), ie = old.end(); it != ie; ++it) {
     ref<Expr> &ce = *it;
     ref<Expr> e = visitor.visit(ce);
-
-    if (e!=ce) {
+//if(it-old.begin() < concolicSize)
+//constraints.push_back(ce);
+//else
+//{
+//std::cout << "e: " << e << " \nce: " << ce << " \n==? "<< (e == ce) << std::endl;
+    if (e!=ce && (it - old.begin() >= concolicSize)) {
       addConstraintInternal(e); // enable further reductions
       changed = true;
     } else {
       constraints.push_back(ce);
     }
   }
-
+//}
+//std::cout << "====================================" << std::endl;
   return changed;
 }
 
@@ -91,9 +96,9 @@ ref<Expr> ConstraintManager::simplifyExpr(ref<Expr> e) const {
     return e;
 
   std::map< ref<Expr>, ref<Expr> > equalities;
-  
+// std::cout << "================ " << concolicSize << std::endl; 
   for (ConstraintManager::constraints_ty::const_iterator 
-         it = constraints.begin(), ie = constraints.end(); it != ie; ++it) {
+         it = constraints.begin() + concolicSize, ie = constraints.end(); it != ie; ++it) {
     if (const EqExpr *ee = dyn_cast<EqExpr>(*it)) {
       if (isa<ConstantExpr>(ee->left)) {
         equalities.insert(std::make_pair(ee->right,
@@ -119,7 +124,6 @@ void ConstraintManager::addConstraintInternal(ref<Expr> e) {
   // slowest thing we do, but it is probably nicer to have a
   // ConstraintSet ADT which efficiently remembers obvious patterns
   // (byte-constant comparison).
-
   switch (e->getKind()) {
   case Expr::Constant:
     assert(cast<ConstantExpr>(e)->isTrue() && 

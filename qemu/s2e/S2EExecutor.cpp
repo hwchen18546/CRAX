@@ -184,6 +184,11 @@ namespace {
     PrintModeSwitch("print-mode-switch",
             cl::desc("Print message when switching from symbolic to concrete and vice versa"),
             cl::init(false));
+
+    cl::opt<bool>
+    ConcolicMode("concolic-mode",
+            cl::desc("Concolic testing"),
+            cl::init(false));
 }
 
 extern "C" {
@@ -429,13 +434,13 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
     uint64_t max = cast<klee::ConstantExpr>(args[2])->getZExtValue();
     assert(min <= max);
 
-    //g_s2e->getDebugStream(s2eState) << "args[0] = " << args[0] << " args[1] = " << min << " args[2] = " << max << " args[3] = " << args[3] << std::endl;
     ref<Expr> expr = args[0];
     Expr::Width width = expr->getWidth();
     // XXX: this might be expensive...
     expr = s2eExecutor->simplifyExpr(*state, expr);
     expr = state->constraints.simplifyExpr(expr);
 
+    //g_s2e->getDebugStream(s2eState) << "args[0] = " << expr << " args[1] = " << min << " args[2] = " << max << " args[3] = " << args[3] << std::endl;
     if(isa<klee::ConstantExpr>(expr)) {
 #ifndef NDEBUG
         uint64_t value = cast<klee::ConstantExpr>(expr)->getZExtValue();
@@ -448,11 +453,14 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
    uint64_t isWrite = cast<klee::ConstantExpr>(args[3])->getZExtValue();
    //uint64_t data = cast<klee::ConstantExpr>(args[4])->getZExtValue();
    if(isWrite == 1)
+   {
      //s2eExecutor->m_s2e->getCorePlugin()->onPortAccess.emit(
        // s2eState, expr, value, isWrite);            
 
      //S2EHandler::handlerCorruptEip(*state, expr, value); 
     s2eExecutor->m_s2e->getCorePlugin()->onCorruptEip.emit(s2eState, args[4], expr);
+     //g_s2e->getDebugStream(s2eState) << expr->getKid(0)->getKid(1)->getKid(0)->getWidth()<< std::endl;
+   }
    //g_s2e->getExecutor()->terminateStateEarly(*s2eState,"forkAndConcretize"); 
     g_s2e->getDebugStream(s2eState) << "forkAndConcretize(" << expr << ")" << std::endl;
  
@@ -476,9 +484,12 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
         }
         return;
     }
-    
+
+    //klee::ConstraintManager cm(state->constraints) ;
+    //cm.erase(cm.concolicSize);
+    //cm.concolicSize = 0;
     // go starting from min
-    Query query(state->constraints, expr);
+    Query query(state->constraints/*cm*/, expr);
     uint64_t step = 1;
     std::vector< uint64_t > values;
     std::vector< ref<Expr> > conditions;
@@ -505,9 +516,12 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
         assert(success && "FIXME: Unhandled solver failure");
 
         if(res) {
+            s2eExecutor->m_s2e->getWarningsStream(s2eState) << "value = " << std::hex << min << std::endl;
+            //s2eExecutor->m_s2e->getWarningsStream(s2eState) << "max = " << max << std::endl;
+            //s2eExecutor->m_s2e->getWarningsStream(s2eState) << "step = " << step << std::endl;
             values.push_back(min);
             conditions.push_back(eqCond);
-break;
+//break;
         }
 
         if(min == max) {
@@ -560,6 +574,8 @@ break;
 
             assert(success && "FIXME: Unhandled solver failure");
             (void) success;
+
+            //s2eExecutor->m_s2e->getWarningsStream(s2eState) << "test >= " << lo << " & <= " << mid << " res: " << res << std::endl;
 
             if (res)
                 hi = mid;
@@ -787,6 +803,7 @@ S2EExecutor::S2EExecutor(S2E* s2e, TCGLLVMContext *tcgLLVMContext,
     g_s2e_concretize_io_addresses = ConcretizeIoAddress;
     g_s2e_concretize_io_writes = ConcretizeIoWrites;
 }
+
 
 S2EExecutor::~S2EExecutor()
 {
@@ -1533,14 +1550,24 @@ void S2EExecutor::prepareFunctionExecution(S2EExecutionState *state,
 
 inline void S2EExecutor::executeOneInstruction(S2EExecutionState *state)
 {
+
+//   if(state->getPc() == 0x080496e3)                    
+//{                                                   
+  //state->dumpStack(40,state->getSp());              
+//  state->dumpX86State( g_s2e->getWarningsStream() );
+                                                      
+//}                                                   
+
     //int64_t start_clock = get_clock();
     cpu_disable_ticks();
 
     KInstruction *ki = state->pc;
 
-    if(state->getPc() == 0x8048575)
-       m_s2e->getDebugStream(state) << *ki->inst << std::endl;
-
+//    if(state->getPc() == 0x080496e5)// || state->getPc() == 0x080496e3)
+//{
+//state->dumpX86State( g_s2e->getWarningsStream() );
+//       m_s2e->getDebugStream(state) << *ki->inst << std::endl;
+//}
     //S2EDebugInstructions = true; 
     if ( S2EDebugInstructions ) {
     m_s2e->getDebugStream(state) << "executing "
@@ -1902,7 +1929,12 @@ uintptr_t S2EExecutor::executeTranslationBlock(
 
     bool executeKlee = m_executeAlwaysKlee;
 
-    //if(state->getPc() >= 0xc0000000)
+    //if(state->getPc() == 0x080496e5)
+    //{
+      //state->dumpStack(40,state->getSp());                
+      //state->dumpX86State( g_s2e->getWarningsStream() );
+
+    //}
     //  state->disableForking();
 
     //else
@@ -2139,6 +2171,8 @@ S2EExecutor::StatePair S2EExecutor::fork(ExecutionState &current,
     static int count=0;
     assert(dynamic_cast<S2EExecutionState*>(&current));
     assert(!static_cast<S2EExecutionState*>(&current)->m_runningConcrete);
+//S2EExecutionState* ss = dynamic_cast<S2EExecutionState*>(&current);
+  //   m_s2e->getWarningsStream()<< "conditions : " << condition << " ip: " <<std::hex << ss->getPc() <<std::endl;
 
     StatePair res = Executor::fork(current, condition, isInternal);
     if(res.first && res.second) {
@@ -2160,6 +2194,18 @@ S2EExecutor::StatePair S2EExecutor::fork(ExecutionState &current,
 
         doStateFork(static_cast<S2EExecutionState*>(&current),
                        newStates, newConditions);
+    }
+   
+    if(ConcolicMode)
+    {
+      if(res.first && !res.second)
+      {
+        addConstraint(current, condition);
+      }
+      if(!res.first && res.second)
+      {
+        addConstraint(current, Expr::createIsZero(condition));
+      }
     }
     return res;
 }
@@ -2367,6 +2413,11 @@ void S2EExecutor::queueStateForMerge(S2EExecutionState *state)
 
     static_cast<MergingSearcher*>(searcher)->queueStateForMerge(*state, mergePoint);
     throw CpuExitException();
+}
+
+bool S2EExecutor::getConcolicMode()
+{
+  return ConcolicMode;
 }
 
 } // namespace s2e

@@ -514,12 +514,12 @@ void REGPARM glue(glue(__st, SUFFIX), MMUSUFFIX)(target_ulong addr,
     void *retaddr;
     int object_index, index;
 
-//if(env->eip >= 0x080483a8 && env->eip <= 0x080483b9)//env->eip <= 0x080483dd && env->eip > 0x080483ce)
+//if(env->eip >= 0x080483cb && env->eip <= 0x080483dc)//env->eip <= 0x080483dd && env->eip > 0x080483ce)
 //{  
    //#ifdef S2E_LLVM_LIB
     //printf("OK!\n");
     //#include <stdio.h>
-  // printf("target:%x , val:%x\n",addr,val);
+//   printf("target:%x , val:%x\n",addr,val);
  //else
     //printf("no\n"); 
   //#endif

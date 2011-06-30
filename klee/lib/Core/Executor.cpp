@@ -751,7 +751,7 @@ Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
   std::map< ExecutionState*, std::vector<SeedInfo> >::iterator it = 
     seedMap.find(&current);
   bool isSeeding = it != seedMap.end();
-
+//printf("seed:%d\n",isSeeding);
   if (!isSeeding && !isa<ConstantExpr>(condition) && 
       (MaxStaticForkPct!=1. || MaxStaticSolvePct != 1. ||
        MaxStaticCPForkPct!=1. || MaxStaticCPSolvePct != 1.) &&
@@ -891,6 +891,8 @@ Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
         current.pathOS << "1";
       }
     }
+//if(ConcolieMode)
+//addConstraint(current, condition);
 
     return StatePair(&current, 0);
   } else if (res==Solver::False) {
@@ -899,7 +901,8 @@ Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
         current.pathOS << "0";
       }
     }
-
+//if(ConcolieMode)
+//addConstraint(current, Expr::createIsZero(condition));
     return StatePair(0, &current);
   } else {
     TimerStatIncrementer timer(stats::forkTime);

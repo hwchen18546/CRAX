@@ -169,8 +169,9 @@ private:
   const MemoryObject *object;
 
   //XXX: made it public for fast access
+public:
   uint8_t *concreteStore;
-
+private:
   // XXX cleanup name of flushMask (its backwards or something)
   // mutable because may need flushed during read of const
   mutable BitArray *flushMask;

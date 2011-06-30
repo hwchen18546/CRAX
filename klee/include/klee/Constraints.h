@@ -26,14 +26,16 @@ public:
   typedef constraints_ty::iterator iterator;
   typedef constraints_ty::const_iterator const_iterator;
 
-  ConstraintManager() {}
+  uint32_t concolicSize;
+
+  ConstraintManager():concolicSize(0) {}
 
   // create from constraints with no optimization
   explicit
   ConstraintManager(const std::vector< ref<Expr> > &_constraints) :
-    constraints(_constraints) {}
+    constraints(_constraints),concolicSize(0) {}
 
-  ConstraintManager(const ConstraintManager &cs) : constraints(cs.constraints) {}
+  ConstraintManager(const ConstraintManager &cs) : constraints(cs.constraints),concolicSize(cs.concolicSize) {}
 
   typedef std::vector< ref<Expr> >::const_iterator constraint_iterator;
 
@@ -67,9 +69,15 @@ public:
       constraints.pop_back();
   }
 
+  iterator erase(int num)
+  {
+    return constraints.erase(constraints.begin(), constraints.begin()+num);
+  }
+
   bool operator==(const ConstraintManager &other) const {
     return constraints == other.constraints;
   }
+
   
 private:
   std::vector< ref<Expr> > constraints;
