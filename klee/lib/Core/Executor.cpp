@@ -783,7 +783,34 @@ Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
   if (isSeeding)
     timeout *= it->second.size();
   solver->setTimeout(timeout);
-  bool success = solver->evaluate(current, condition, res);
+  //ExecutionState temp = current;
+  //temp.addConstraint(temp.constraints.getConcolicConstraints());
+  //bool success = solver->evaluate(temp, condition, res);
+  //addConstraint(current, current.constraints.getConcolicConstraints());
+//    condition = current.constraints.simplifyExpr(condition);
+//  std::cout << "-------2---------- " << current.constraints.simplifyExpr(AndExpr::create(current.constraints.getConcolicConstraints(), condition)) << std::endl;
+
+  bool success;
+  if(!condition.get()->isTrue() && !condition.get()->isFalse())
+  { 
+    ExecutionState temp(current.constraints.getConstraints());
+
+    addConstraint(temp, current.constraints.getConcolicConstraints()); 
+  //std::cout << "-------1---------- " << AndExpr::create(current.constraints.getConcolicConstraints(), condition) << std::endl;
+   // std::cout << "-------1---------- " <<  condition << std::endl;
+    //success = solver->evaluate(current, AndExpr::create(current.constraints.getConcolicConstraints(), condition), res);
+    success = solver->evaluate(temp,  condition, res);
+   // std::cout << "-------2---------- " << res << std::endl;
+    //if(res == Solver::Unknown)
+    // res = Solver::True;
+  }
+  //bool success = solver->evaluate(current, condition, res);
+//  if(res==Solver::Unknown)
+//    res = Solver::True;
+  //addConstraint(current, condition);
+  else
+  success = solver->evaluate(current, condition, res);
+
   solver->setTimeout(0);
   if (!success) {
     current.pc = current.prevPC;
@@ -792,7 +819,6 @@ Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
     terminateStateEarly(current, ss.str());
     return StatePair(0, 0);
   }
-
   if (!isSeeding) {
     if (replayPath && !isInternal) {
       assert(replayPosition<replayPath->size() &&
@@ -836,9 +862,11 @@ Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
           printf("KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK %d\n",theRNG.getBool());
           sleep(3);
         }*/
-        if (theRNG.getBool()) {
+        //Solver::Validity result = res;
+        //bool success = solver->evaluate(current, AndExpr::create(current.constraints.getConcolicConstraints(), condition), result);
+        if (/*result != Solver::False*/theRNG.getBool()) {
           addConstraint(current, condition);
-          res = Solver::True;        
+          res = Solver::True;    
         } else {
           addConstraint(current, Expr::createIsZero(condition));
           res = Solver::False;

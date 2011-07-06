@@ -64,7 +64,7 @@ public:
 bool ConstraintManager::rewriteConstraints(ExprVisitor &visitor) {
   ConstraintManager::constraints_ty old;
   bool changed = false;
-
+  
   constraints.swap(old);
   for (ConstraintManager::constraints_ty::iterator 
          it = old.begin(), ie = old.end(); it != ie; ++it) {
@@ -96,9 +96,9 @@ ref<Expr> ConstraintManager::simplifyExpr(ref<Expr> e) const {
     return e;
 
   std::map< ref<Expr>, ref<Expr> > equalities;
-// std::cout << "================ " << concolicSize << std::endl; 
+ //std::cout << "================ " << concolicSize << std::endl; 
   for (ConstraintManager::constraints_ty::const_iterator 
-         it = constraints.begin() + concolicSize, ie = constraints.end(); it != ie; ++it) {
+         it = constraints.begin()+ concolicSize, ie = constraints.end(); it != ie; ++it) {
     if (const EqExpr *ee = dyn_cast<EqExpr>(*it)) {
       if (isa<ConstantExpr>(ee->left)) {
         equalities.insert(std::make_pair(ee->right,
@@ -126,8 +126,8 @@ void ConstraintManager::addConstraintInternal(ref<Expr> e) {
   // (byte-constant comparison).
   switch (e->getKind()) {
   case Expr::Constant:
-    assert(cast<ConstantExpr>(e)->isTrue() && 
-           "attempt to add invalid (false) constraint");
+//    assert(cast<ConstantExpr>(e)->isTrue() && 
+//           "attempt to add invalid (false) constraint");
     break;
     
     // split to enable finer grained independence and other optimizations
@@ -158,3 +158,4 @@ void ConstraintManager::addConstraint(ref<Expr> e) {
   e = simplifyExpr(e);
   addConstraintInternal(e);
 }
+
