@@ -157,9 +157,11 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
                   {
                     op = state->addressSpace.findObject(hostAddress & S2E_RAM_OBJECT_MASK);
                     s2e()->getMessagesStream(state) << "concrete value: " << op.second->concreteStore[hostAddress & ~S2E_RAM_OBJECT_MASK] << std::endl;          
-                    state->addConstraint( EqExpr::create(symb[i], ConstantExpr::alloc(op.second->concreteStore[hostAddress & ~S2E_RAM_OBJECT_MASK],Expr::Int8)));
-                    state->constraints.concolicSize++;
-                    s2e()->getWarningsStream(state) << "concolicSize: " <<state->constraints.concolicSize << std::endl; 
+                    //state->addConstraint( EqExpr::create(symb[i], ConstantExpr::alloc(op.second->concreteStore[hostAddress & ~S2E_RAM_OBJECT_MASK],Expr::Int8)));
+                    state->constraints.addConcolicConstraints( EqExpr::create(symb[i], ConstantExpr::alloc(op.second->concreteStore[hostAddress & ~S2E_RAM_OBJECT_MASK],Expr::Int8)) );
+                    //state->constraints.concolicSize++;
+                    //state->constraints.setConcolicSize(state->constraints.getConcolicSize() + 1);
+                    //s2e()->getWarningsStream(state) << "concolicSize: " <<state->constraints.getConcolicSize() << std::endl; 
                   }
                 }
     
@@ -179,6 +181,15 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
                //  state->addConstraint( EqExpr::create(symb[size-1], ConstantExpr::alloc(0x0,Expr::Int8)));
              //enum AddresstType addressType = VirtualAddress;
             //int64_t hostAddress =  state->getHostAddress(address-1);
+/*
+klee::ref<klee::Expr> one_byte =  klee::EqExpr::create( symb[0], klee::ConstantExpr::alloc(0x0 ,klee::Expr::Int8));
+bool res;                                                                                                                    
+//klee::Solver::Validity res;                                                                                                  
+klee::Query query(state->constraints, one_byte);                                                                                             
+s2e()->getExecutor()->getSolver()->mayBeTrue(query, res);                                                                    
+                                                                                                                               
+s2e()->getMessagesStream(state) << symb[0] << " res : " << res << std::endl;                                                             
+*/
 
 //s2e()->getWarningsStream(state) << "concolicSize: " << state->constraints.concolicSize << std::endl;
 
@@ -350,8 +361,8 @@ state->addConstraint( klee::EqExpr::create(state->readMemory8(bp_value+7), klee:
 
 if(s2e()->getExecutor()->getConcolicMode())
 {
-state->constraints.erase(state->constraints.concolicSize);
-state->constraints.concolicSize=0;
+state->constraints.erase(state->constraints.getConcolicSize());
+state->constraints.setConcolicSize(0);
 }
                 if (!ok) {
                     s2e()->getWarningsStream(state)
@@ -365,6 +376,8 @@ state->constraints.concolicSize=0;
                     }
                 }
 
+
+                s2e()->getWarningsStream(state) << "CC : " << state->constraints.getConcolicConstraints() << std::endl;
 
                 std::vector< ref<Expr> >::const_iterator it = state->constraints.begin();
                 for(; it != state->constraints.end() ;it++)

@@ -26,16 +26,15 @@ public:
   typedef constraints_ty::iterator iterator;
   typedef constraints_ty::const_iterator const_iterator;
 
-  uint32_t concolicSize;
 
-  ConstraintManager():concolicSize(0) {}
+  ConstraintManager():concolic_constraints(ConstantExpr::create(0x1,Expr::Bool)),concolicSize(0) {}
 
   // create from constraints with no optimization
   explicit
   ConstraintManager(const std::vector< ref<Expr> > &_constraints) :
-    constraints(_constraints),concolicSize(0) {}
+    constraints(_constraints),concolic_constraints(ConstantExpr::create(0x1,Expr::Bool)),concolicSize(0) {}
 
-  ConstraintManager(const ConstraintManager &cs) : constraints(cs.constraints),concolicSize(cs.concolicSize) {}
+  ConstraintManager(const ConstraintManager &cs) : constraints(cs.constraints),concolic_constraints(cs.concolic_constraints),concolicSize(cs.concolicSize) {}
 
   typedef std::vector< ref<Expr> >::const_iterator constraint_iterator;
 
@@ -45,7 +44,7 @@ public:
 
   ref<Expr> simplifyExpr(ref<Expr> e) const;
 
-  void addConstraint(ref<Expr> e);
+  void addConstraint(ref<Expr> e); // type:1(conoclic), type:2(all)
   
   bool empty() const {
     return constraints.empty();
@@ -74,13 +73,43 @@ public:
     return constraints.erase(constraints.begin(), constraints.begin()+num);
   }
 
+  void setConcolicSize(uint32_t num)
+  {
+    concolicSize = num;
+  }
+
+  uint32_t getConcolicSize()
+  {
+    return concolicSize;
+  }
+  
+  void addConcolicConstraints(ref<Expr> e)
+  {
+    concolic_constraints = AndExpr::create(concolic_constraints, e);
+  }
+
+  ref<Expr> getConcolicConstraints()
+  {
+    return concolic_constraints;
+  }
+
+  std::vector< ref<Expr> > getConstraints()
+  {
+    return constraints;
+  }
+
   bool operator==(const ConstraintManager &other) const {
     return constraints == other.constraints;
   }
 
   
 private:
+//public:
   std::vector< ref<Expr> > constraints;
+  //std::vector< ref<Expr> > concolic_constraints;
+  //std::vector< ref<Expr> > all_constraints;
+  ref<Expr> concolic_constraints;
+  uint32_t concolicSize;
 
   // returns true iff the constraints were modified
   bool rewriteConstraints(ExprVisitor &visitor);

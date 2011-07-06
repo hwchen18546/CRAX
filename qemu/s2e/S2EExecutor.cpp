@@ -437,6 +437,9 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
     ref<Expr> expr = args[0];
     Expr::Width width = expr->getWidth();
     // XXX: this might be expensive...
+
+    //expr = klee::AndExpr::create(expr, state->constraints.getConcolicConstraints());
+
     expr = s2eExecutor->simplifyExpr(*state, expr);
     expr = state->constraints.simplifyExpr(expr);
 
@@ -452,11 +455,11 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
  
    uint64_t isWrite = cast<klee::ConstantExpr>(args[3])->getZExtValue();
    //uint64_t data = cast<klee::ConstantExpr>(args[4])->getZExtValue();
-   if(isWrite == 1)
+   if(isWrite == 1 && !isa<klee::ConstantExpr>(args[4]))
    {
      //s2eExecutor->m_s2e->getCorePlugin()->onPortAccess.emit(
        // s2eState, expr, value, isWrite);            
-
+//g_s2e->getWarningsStream(s2eState) << "arg4: " << args[4] <<" isa: " << isa<klee::ConstantExpr>(args[4]) << std::endl;
      //S2EHandler::handlerCorruptEip(*state, expr, value); 
     s2eExecutor->m_s2e->getCorePlugin()->onCorruptEip.emit(s2eState, args[4], expr);
      //g_s2e->getDebugStream(s2eState) << expr->getKid(0)->getKid(1)->getKid(0)->getWidth()<< std::endl;
@@ -465,12 +468,28 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
     g_s2e->getDebugStream(s2eState) << "forkAndConcretize(" << expr << ")" << std::endl;
  
     //s2eState->disableSymbolicExecution();
+
+    klee::ConstraintManager cm(state->constraints) ;
+/*
+    std::vector< ref<Expr> >::const_iterator it = state->constraints.begin();
+    for(; it != s2eState->constraints.end() ;it++)                              
+    {                                                                        
+      g_s2e->getWarningsStream(s2eState) << "constraint : " << *it << std::endl;
+    }                                                                        
+*/
+
+    bool res;
+    s2eExecutor->getSolver()->mayBeTrue(Query(cm,state->constraints.getConcolicConstraints()), res);
+//    g_s2e->getWarningsStream(s2eState) << "RES: " << res << std::endl;
+    if(res)
+      cm.addConstraint(state->constraints.getConcolicConstraints());
+
     if (state->forkDisabled) {
     //if (1) {
         //Simply pick one possible value and continue
         ref<klee::ConstantExpr> value;
         bool success = s2eExecutor->getSolver()->getValue(
-                Query(state->constraints, expr), value);
+                Query(/*state->constraints*/cm, expr), value);
 
         if (success) {
             g_s2e->getDebugStream(s2eState) << "Chosen " << value << std::endl;
@@ -485,11 +504,10 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
         return;
     }
 
-    //klee::ConstraintManager cm(state->constraints) ;
     //cm.erase(cm.concolicSize);
     //cm.concolicSize = 0;
     // go starting from min
-    Query query(state->constraints/*cm*/, expr);
+    Query query(/*state->constraints*/cm, expr);
     uint64_t step = 1;
     std::vector< uint64_t > values;
     std::vector< ref<Expr> > conditions;
