@@ -455,11 +455,11 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
  
    uint64_t isWrite = cast<klee::ConstantExpr>(args[3])->getZExtValue();
    //uint64_t data = cast<klee::ConstantExpr>(args[4])->getZExtValue();
-   if(isWrite == 1)
+   if(isWrite == 1 && !isa<klee::ConstantExpr>(args[4]))
    {
      //s2eExecutor->m_s2e->getCorePlugin()->onPortAccess.emit(
        // s2eState, expr, value, isWrite);            
-
+//g_s2e->getWarningsStream(s2eState) << "arg4: " << args[4] <<" isa: " << isa<klee::ConstantExpr>(args[4]) << std::endl;
      //S2EHandler::handlerCorruptEip(*state, expr, value); 
     s2eExecutor->m_s2e->getCorePlugin()->onCorruptEip.emit(s2eState, args[4], expr);
      //g_s2e->getDebugStream(s2eState) << expr->getKid(0)->getKid(1)->getKid(0)->getWidth()<< std::endl;
@@ -477,9 +477,10 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
       g_s2e->getWarningsStream(s2eState) << "constraint : " << *it << std::endl;
     }                                                                        
 */
+
     bool res;
     s2eExecutor->getSolver()->mayBeTrue(Query(cm,state->constraints.getConcolicConstraints()), res);
-    g_s2e->getWarningsStream(s2eState) << "RES: " << res << std::endl;
+//    g_s2e->getWarningsStream(s2eState) << "RES: " << res << std::endl;
     if(res)
       cm.addConstraint(state->constraints.getConcolicConstraints());
 
