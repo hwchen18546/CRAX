@@ -75,7 +75,7 @@ bool ConstraintManager::rewriteConstraints(ExprVisitor &visitor) {
 //else
 //{
 //std::cout << "e: " << e << " \nce: " << ce << " \n==? "<< (e == ce) << std::endl;
-    if (e!=ce && (it - old.begin() >= concolicSize)) {
+    if (e!=ce) {
       addConstraintInternal(e); // enable further reductions
       changed = true;
     } else {
@@ -98,7 +98,7 @@ ref<Expr> ConstraintManager::simplifyExpr(ref<Expr> e) const {
   std::map< ref<Expr>, ref<Expr> > equalities;
  //std::cout << "================ " << concolicSize << std::endl; 
   for (ConstraintManager::constraints_ty::const_iterator 
-         it = constraints.begin()+ concolicSize, ie = constraints.end(); it != ie; ++it) {
+         it = constraints.begin(), ie = constraints.end(); it != ie; ++it) {
     if (const EqExpr *ee = dyn_cast<EqExpr>(*it)) {
       if (isa<ConstantExpr>(ee->left)) {
         equalities.insert(std::make_pair(ee->right,

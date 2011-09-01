@@ -404,7 +404,7 @@ void ObjectState::write8(unsigned offset, uint8_t value) {
   //assert(read_only == false && "writing to read-only object!");
   if(!object->isSharedConcrete) {
     concreteStore[offset] = value;
-    setKnownSymbolic(offset, 0);
+    //setKnownSymbolic(offset, 0);
 
     markByteConcrete(offset);
     markByteUnflushed(offset);

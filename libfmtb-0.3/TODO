@@ -1,0 +1,21 @@
+- Prendre en compte les caractères NULL et '%'
+
+--- Issue du papier de scut sur les format strings ----
+
+> Beside the exploitation itself there are some things to consider. If
+> the shell- code is contained within the format string it may not
+> contain `\x25' (%) or NUL bytes. But since no important opcode is in
+> neither 0x25 or 0x00 you will not run into problems when
+> constructing shellcode. The same is true if he addresses are stored
+> on the format string, too. If an address you want o write to
+> contains a NUL-byte in the least significant byte, you can replace t
+> with a short-write on an odd address just below the address you want
+> to tore the byte on. This is not possible on all architectures,
+> though. Also, you can use two seperate format strings. The first
+> creates the address you want to write to in the memory behind the
+> whole string. The second uses this address to write to it.  This may
+> become complicated pretty soon, but allows reliable exploita- tion
+> and is sometimes worth the effort.
+
+-- zorgon
+

@@ -195,7 +195,7 @@ public:
     /** Signal emitted when QEMU is ready to activate registered devices */
     sigc::signal<void, struct PCIBus*> onDeviceActivation;
 
-    sigc::signal<void, S2EExecutionState * , klee::ref<klee::Expr> , klee::ref<klee::Expr> > onCorruptEip;
+    sigc::signal<void, S2EExecutionState * , klee::ref<klee::Expr> , klee::ref<klee::Expr> , bool> onCorruptEip;
 };
 
 } // namespace s2e

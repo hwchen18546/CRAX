@@ -27,14 +27,14 @@ public:
   typedef constraints_ty::const_iterator const_iterator;
 
 
-  ConstraintManager():concolic_constraints(ConstantExpr::create(0x1,Expr::Bool)),concolicSize(0) {}
+  ConstraintManager():/*concolic_constraints(ConstantExpr::create(0x1,Expr::Bool)),*/noZero_constraints(ConstantExpr::create(0x1,Expr::Bool)) {}
 
   // create from constraints with no optimization
   explicit
   ConstraintManager(const std::vector< ref<Expr> > &_constraints) :
-    constraints(_constraints),concolic_constraints(ConstantExpr::create(0x1,Expr::Bool)),concolicSize(0) {}
+    constraints(_constraints)/*,concolic_constraints(ConstantExpr::create(0x1,Expr::Bool))*/, noZero_constraints(ConstantExpr::create(0x1,Expr::Bool)) {}
 
-  ConstraintManager(const ConstraintManager &cs) : constraints(cs.constraints),concolic_constraints(cs.concolic_constraints),concolicSize(cs.concolicSize) {}
+  ConstraintManager(const ConstraintManager &cs) : constraints(cs.constraints),concolic_constraints(cs.concolic_constraints), noZero_constraints(cs.noZero_constraints) {}
 
   typedef std::vector< ref<Expr> >::const_iterator constraint_iterator;
 
@@ -72,7 +72,7 @@ public:
   {
     return constraints.erase(constraints.begin(), constraints.begin()+num);
   }
-
+/*
   void setConcolicSize(uint32_t num)
   {
     concolicSize = num;
@@ -82,34 +82,82 @@ public:
   {
     return concolicSize;
   }
-  
+*/  
   void addConcolicConstraints(ref<Expr> e)
   {
-    concolic_constraints = AndExpr::create(concolic_constraints, e);
+    concolic_constraints.push_back(e);
+    //concolic_constraints = AndExpr::create(concolic_constraints, e);
+  }
+
+  void addNoZeroConstraints(ref<Expr> e)
+  {
+    noZero_constraints = AndExpr::create(noZero_constraints, e);
   }
 
   ref<Expr> getConcolicConstraints()
   {
-    return concolic_constraints;
+    ref<Expr> temp = ConstantExpr::create(0x1,Expr::Bool);
+
+    std::vector< ref<Expr> >::iterator it;
+    for(it=concolic_constraints.begin() ; it!=concolic_constraints.end() ; it++)
+    {
+      temp = AndExpr::create(temp, *it);
+    }
+  
+    return temp;
+    //return concolic_constraints;
+  }
+
+  ref<Expr> getNoZeroConstraints()
+  {
+    return noZero_constraints;
   }
 
   std::vector< ref<Expr> > getConstraints()
   {
     return constraints;
   }
-
+/*
+  std::vector< ref<Expr> > getConcolicVector()
+  {
+    return concolic_constraints;
+  }
+*/
   bool operator==(const ConstraintManager &other) const {
     return constraints == other.constraints;
   }
+/*
+  void backupConstraints()
+  {
+    constraints_backup.assign(constraints.begin(), constraints.end());
+  }
 
+  void restoreConstraints()
+  {
+    //constraints.assign(constraints_backup.begin(), constraints_backup.end());
+    constraints.swap(constraints_backup);
+  }
+*/
+  void swapConstraints()
+  {
+    constraints.swap(concolic_constraints);
+  }
+
+  bool isConcolicEmpty()
+  {
+    return concolic_constraints.empty();
+  }
   
 private:
 //public:
   std::vector< ref<Expr> > constraints;
-  //std::vector< ref<Expr> > concolic_constraints;
+  //std::vector< ref<Expr> > constraints_backup;
+public:
+  std::vector< ref<Expr> > concolic_constraints;
   //std::vector< ref<Expr> > all_constraints;
-  ref<Expr> concolic_constraints;
-  uint32_t concolicSize;
+  //ref<Expr> concolic_constraints;
+  ref<Expr> noZero_constraints;
+  //uint32_t concolicSize;
 
   // returns true iff the constraints were modified
   bool rewriteConstraints(ExprVisitor &visitor);

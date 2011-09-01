@@ -241,7 +241,7 @@ public:
 
     void queueStateForMerge(S2EExecutionState *state);
 
-    bool getConcolicMode();
+    //bool getConcolicMode();
     
 
 protected:

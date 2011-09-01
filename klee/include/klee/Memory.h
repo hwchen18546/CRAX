@@ -153,8 +153,8 @@ public:
 };
 
 class ObjectState {
-private:
-//public:
+//private:
+public:
   // XXX(s2e) for now we keep this first to access from C code
   // (yes, we do need to access if really fast)
   BitArray *concreteMask;

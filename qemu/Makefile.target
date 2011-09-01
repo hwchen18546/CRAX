@@ -376,6 +376,7 @@ s2eobj-y += s2e/S2E.o
 #s2eobj-y += s2e/Plugins/PluginInterface.o
 
 #s2e/Plugins/Exploit.o: QEMU_CXXFLAGS+=-fno-inline
+#s2e/Plugins/Exploit.o: QEMU_CXXFLAGS+=-I/home/bobo/s2e/build/libfmtb -L/home/bobo/s2e/build/libfmtb -lfmtb
 s2e/Plugins/Annotation.o: QEMU_CXXFLAGS+=-fno-inline
 s2e/Plugins/BranchCoverage.o s2e/Plugins/WindowsInterceptor/WindowsMonitor.o: QEMU_CXXFLAGS+=-fno-inline
 s2e/Plugins/ExecutionTrace.o s2e/Plugins/DataSelectors/GenericDataSelector.o: QEMU_CXXFLAGS+=-fno-inline

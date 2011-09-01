@@ -188,7 +188,7 @@ static inline void s2e_concretize(void* buf, int size)
 }
 
 /** Get example value for expression (without adding state constraints). */
-static inline void s2e_get_example(void* buf, int size, void* target)
+static inline void s2e_get_example(void* buf, int size)
 {
     __asm__ __volatile__(
 	"pushl %%ebx\n"
@@ -197,9 +197,24 @@ static inline void s2e_get_example(void* buf, int size, void* target)
         ".byte 0x00, 0x21, 0x00, 0x00\n"
         ".byte 0x00, 0x00, 0x00, 0x00\n"
 	"popl %%ebx\n"
-        : : "a" (buf), "d" (size), "c" (target) : "memory"
+        : : "a" (buf), "d" (size) : "memory"
     );
 }
+
+/*
+static inline void s2e_symbolic(void* buf, int size)
+{
+    __asm__ __volatile__(
+	"pushl %%ebx\n"
+	"movl %%edx, %%ebx\n"
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x05, 0x00, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+	"popl %%ebx\n"
+        : : "a" (buf), "d" (size) : "memory"
+    );
+}
+*/
 
 /** Terminate current state. */
 static inline void s2e_kill_state(int status, const char* message)
@@ -350,6 +365,24 @@ static inline void _s2e_assert(int b, const char *expression )
    if (!b) {
       s2e_kill_state(0, expression);
    }
+}
+
+static inline void s2e_enable_symbolic_execution()
+{
+    __asm__ __volatile__(
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x01, 0x00, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+    );
+}
+
+static inline void s2e_disable_symbolic_execution()
+{
+    __asm__ __volatile__(
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x02, 0x00, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+    );
 }
 
 #define s2e_assert(expression) _s2e_assert(expression, "Assertion failed: "  #expression)

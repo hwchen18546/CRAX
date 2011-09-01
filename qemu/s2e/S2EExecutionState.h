@@ -40,6 +40,8 @@
 #include <klee/ExecutionState.h>
 #include <klee/Memory.h>
 
+#include <sys/times.h>
+
 extern "C" {
     struct TranslationBlock;
     struct TimersState;
@@ -118,7 +120,12 @@ protected:
     void addressSpaceChange(const klee::MemoryObject *mo,
                             const klee::ObjectState *oldState,
                             klee::ObjectState *newState);
-
+public:
+    clock_t start, middle, end;
+    struct tms t_start, t_middle, t_end;
+    
+    std::vector<uint64_t> concrete_byte;
+    //std::vector<std::pair<uint64_t, klee::ref<klee::Expr> > > concrete_byte;
 public:
     enum AddressType {
         VirtualAddress, PhysicalAddress, HostAddress
@@ -184,6 +191,7 @@ public:
     uint64_t getPid() const;
     uint64_t getSp() const;
     uint64_t getBp() const;
+    uint64_t getAx() const;
 
     void setPc(uint64_t pc);
     void setSp(uint64_t sp);

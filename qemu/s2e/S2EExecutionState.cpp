@@ -118,6 +118,32 @@ void S2EExecutionState::enableSymbolicExecution()
     if (m_symbexEnabled) {
         return;
     }
+   /* 
+    for(std::vector<std::pair<uint64_t, klee::ref<klee::Expr> > >::iterator it = concrete_byte.begin() ; it != concrete_byte.end() ; it++)
+    {
+        //g_s2e->getMessagesStream(this) << "address: " << it->first << " value: " << it->second << std::endl; 
+    
+        ObjectPair op = addressSpace.findObject(it->first & S2E_RAM_OBJECT_MASK);
+        ObjectState *wos = NULL;
+        wos = addressSpace.getWriteable(op.first, op.second);
+        wos->write8(it->first & ~S2E_RAM_OBJECT_MASK, it->second);
+
+    }
+    concrete_byte.clear();
+*/
+   //dumpStack(4, getBp()+4);
+
+    for(std::vector<uint64_t>::iterator it = concrete_byte.begin() ; it != concrete_byte.end() ; it++)
+    {
+      //g_s2e->getMessagesStream(this) << "address : " << std::hex << *it << std::endl;
+      ObjectPair op = addressSpace.findObject(*it & S2E_RAM_OBJECT_MASK);
+      unsigned int offset = (*it & ~S2E_RAM_OBJECT_MASK);                       
+      klee::ObjectState *wos = addressSpace.getWriteable(op.first, op.second);   
+      wos->markByteSymbolic(offset);                                                    
+      wos->markByteUnflushed(offset);                                                   
+    //g_s2e->getMessagesStream(this) << "address : " << *it  << " isByte : " << op.second->isByteKnownSymbolic(offset)<< " value : " << readMemory8(*it) << std::endl;
+    }
+    concrete_byte.clear();
 
     m_symbexEnabled = true;
 
@@ -392,6 +418,13 @@ uint64_t S2EExecutionState::getSp() const
 uint64_t S2EExecutionState::getBp() const
 {
     ref<Expr> e = readCpuRegister(CPU_OFFSET(regs[R_EBP]),
+                                  8*sizeof(target_ulong));
+    return cast<ConstantExpr>(e)->getZExtValue(64);
+}
+
+uint64_t S2EExecutionState::getAx() const
+{
+    ref<Expr> e = readCpuRegister(CPU_OFFSET(regs[R_EAX]),
                                   8*sizeof(target_ulong));
     return cast<ConstantExpr>(e)->getZExtValue(64);
 }

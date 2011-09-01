@@ -115,6 +115,15 @@ stamps/klee-make-release: stamps/klee-configure stamps/llvm-make-release stamps/
 	cd klee && make ENABLE_OPTIMIZED=1 -j$(JOBS)
 	mkdir -p stamps && touch $@
 
+###########
+# libfmtb #
+###########
+
+stamps/libfmtb:
+	cp -Rup $(S2ESRC)/libfmtb-0.3 libfmtb
+	cd libfmtb && make
+	mkdir -p stamps && touch $@
+
 ########
 # QEMU #
 ########
@@ -154,6 +163,7 @@ stamps/qemu-make-debug: stamps/qemu-configure-debug stamps/klee-make-debug ALWAY
 	cd qemu-debug && make -j$(JOBS)
 	mkdir -p stamps && touch $@
 
+#stamps/qemu-make-release: stamps/qemu-configure-release stamps/klee-make-release stamps/libfmtb ALWAYS
 stamps/qemu-make-release: stamps/qemu-configure-release stamps/klee-make-release ALWAYS
 	cd qemu-release && make -j$(JOBS)
 	mkdir -p stamps && touch $@

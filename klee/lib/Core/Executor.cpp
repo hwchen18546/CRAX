@@ -269,6 +269,11 @@ namespace {
   ValidateSimplifier("validate-expr-simplifier",
             cl::desc("Checks that the simplification algorithm produced correct expressions"),
             cl::init(false));
+
+  cl::opt<bool>                        
+  ConcolicMode("concolic-mode",        
+        cl::desc("Concolic testing"),
+        cl::init(false));            
 }
 
 unsigned Executor::getMaxMemory() { return MaxMemory; }
@@ -788,28 +793,52 @@ Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
   //bool success = solver->evaluate(temp, condition, res);
   //addConstraint(current, current.constraints.getConcolicConstraints());
 //    condition = current.constraints.simplifyExpr(condition);
-//  std::cout << "-------2---------- " << current.constraints.simplifyExpr(AndExpr::create(current.constraints.getConcolicConstraints(), condition)) << std::endl;
 
   bool success;
-  if(!condition.get()->isTrue() && !condition.get()->isFalse())
-  { 
-    ExecutionState temp(current.constraints.getConstraints());
+  success = solver->evaluate(current, condition, res);
 
-    addConstraint(temp, current.constraints.getConcolicConstraints()); 
+//  if(!condition.get()->isTrue() && !condition.get()->isFalse())
+  if(res == Solver::Unknown && getConcolicMode()/*getConcolicConstraints()->isTrue()*/)
+  {
+    //ref<Expr> qq = AndExpr::create(condition, current.constraints.getConcolicConstraints());
+    //qq = simplifyExpr(current, qq);
+    //std::cout << "================================== " << qq << std::endl;
+  //std::cout << "-------2---------- " << current.constraints.simplifyExpr(AndExpr::create(condition,current.constraints.getConcolicConstraints())) << std::endl;
+ 
+//    ExecutionState temp(current.constraints.getConstraints());
+
+//    addConstraint(temp, current.constraints.getConcolicConstraints()); 
+current.constraints.swapConstraints();
   //std::cout << "-------1---------- " << AndExpr::create(current.constraints.getConcolicConstraints(), condition) << std::endl;
    // std::cout << "-------1---------- " <<  condition << std::endl;
     //success = solver->evaluate(current, AndExpr::create(current.constraints.getConcolicConstraints(), condition), res);
-    success = solver->evaluate(temp,  condition, res);
+    success = solver->evaluate(current,  condition, res);
+    //success = solver->evaluate(temp,  condition, res);
+current.constraints.swapConstraints();
    // std::cout << "-------2---------- " << res << std::endl;
-    //if(res == Solver::Unknown)
+    if(res == Solver::True)
+    {
+      //std::cout << "branch : True" << std::endl;
+      //res = Solver::True;
+      addConstraint(current, condition);
+    }
+    else if(res == Solver::False)
+    {
+      //std::cout << "branch : False" << std::endl;
+      //res = Solver::False;
+      addConstraint(current, Expr::createIsZero(condition));
+    }
+    else
+    {
+      assert(0 && "Error!!! In concolic mode, only one branch can be true.");
+    }
     // res = Solver::True;
   }
   //bool success = solver->evaluate(current, condition, res);
 //  if(res==Solver::Unknown)
 //    res = Solver::True;
   //addConstraint(current, condition);
-  else
-  success = solver->evaluate(current, condition, res);
+  //else
 
   solver->setTimeout(0);
   if (!success) {
@@ -1139,7 +1168,20 @@ Executor::toConstant(ExecutionState &state,
     return CE;
 
   ref<ConstantExpr> value;
+
+//ExecutionState temp(state.constraints.getConstraints());         
+                                                                   
+//addConstraint(temp, state.constraints.getConcolicConstraints()); 
+
+
+  if(getConcolicMode())
+    state.constraints.swapConstraints();
+
   bool success = solver->getValue(state, e, value);
+
+  if(getConcolicMode())
+    state.constraints.swapConstraints();
+
   assert(success && "FIXME: Unhandled solver failure");
   (void) success;
 
@@ -1149,10 +1191,11 @@ Executor::toConstant(ExecutionState &state,
      << " to value " << value 
      << " (" << (*(state.pc)).info->file << ":" << (*(state.pc)).info->line << ")";
 
-  //os << " value: " << e;
+  //std::cout << " value: " << e << std::endl;
       
   klee_warning_external(reason, "%s", os.str().c_str());
-  
+
+  //if(strcmp(reason, "memory access from concrete code"))
   addConstraint(state, EqExpr::create(e, value));
   
   return value;
@@ -1166,8 +1209,21 @@ Executor::toConstantSilent(ExecutionState &state,
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(e))
     return CE;
 
+//ExecutionState temp(state.constraints.getConstraints());         
+//ExecutionState temp = state;
+//temp.addConstraint(state.constraints.getConcolicConstraints());
+//ref<Expr> two = AndExpr::create(e, state.constraints.getConcolicConstraints());
+ 
   ref<ConstantExpr> value;
+
+  if(getConcolicMode())
+    state.constraints.swapConstraints();
+
   bool success = solver->getValue(state, e, value);
+
+  if(getConcolicMode())
+    state.constraints.swapConstraints();
+
   assert(success && "FIXME: Unhandled solver failure");
   (void) success;
 
@@ -3027,11 +3083,13 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   if (SimplifySymIndices) {
     if (!isa<ConstantExpr>(address))
       address = state.constraints.simplifyExpr(address);
-    if (isWrite && !isa<ConstantExpr>(value))
-      value = state.constraints.simplifyExpr(value);
+  //  if (isWrite && !isa<ConstantExpr>(value))
+  //    value = state.constraints.simplifyExpr(value);
   }
 
-          //        ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
+//                  ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
+//                  if((uint64_t )state.eip == CE->getZExtValue())
+//                    std::cout << "value : " << value << std::endl;
           //if((uint64_t )state.eip == CE->getZExtValue() )
           //if(state->getPc() == 0x8048575)
           //{cout << "oh~ my ~ god~ " << value << std::endl;}
@@ -3132,7 +3190,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
                   //ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
 
 
-                  if((uint64_t )state.eip == CE->getZExtValue() && dyn_cast<ConstantExpr>(e) == NULL)
+                  if((uint64_t )state.eip == CE->getZExtValue() && dyn_cast<ConstantExpr>(value) == NULL)
                   {
                     //std::cout << "EIP : " << (uint64_t)state.eip << std::endl;
                     //m_s2e->getCorePlugin();0
@@ -3582,4 +3640,9 @@ void Executor::addSpecialFunctionHandler(Function* function,
 Solver *Executor::getSolver() const
 {
     return solver->solver;
+}
+
+bool Executor::getConcolicMode()
+{
+  return ConcolicMode;
 }

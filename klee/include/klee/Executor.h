@@ -505,6 +505,8 @@ public:
   }
 
   Solver *getSolver() const;
+
+  bool getConcolicMode();
 };
   
 } // End klee namespace

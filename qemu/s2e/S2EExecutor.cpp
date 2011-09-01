@@ -184,11 +184,12 @@ namespace {
     PrintModeSwitch("print-mode-switch",
             cl::desc("Print message when switching from symbolic to concrete and vice versa"),
             cl::init(false));
-
+/*
     cl::opt<bool>
     ConcolicMode("concolic-mode",
             cl::desc("Concolic testing"),
             cl::init(false));
+*/
 }
 
 extern "C" {
@@ -337,7 +338,7 @@ void S2EHandler::handlerCorruptEip(klee::ExecutionState &state, klee::ref<klee::
 {
   S2EExecutionState *s = dynamic_cast<S2EExecutionState *>(&state);
   //m_s2e->getWarningsStream(s) << "[*] Eip is courrupted. vaule: " << value << std::endl;
-  m_s2e->getCorePlugin()->onCorruptEip.emit(s, value, target);
+  m_s2e->getCorePlugin()->onCorruptEip.emit(s, value, target, 1);
   //s2e_on_corrput_eip(s, value, target);
 }
 
@@ -455,21 +456,21 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
  
    uint64_t isWrite = cast<klee::ConstantExpr>(args[3])->getZExtValue();
    //uint64_t data = cast<klee::ConstantExpr>(args[4])->getZExtValue();
-   if(isWrite == 1 && !isa<klee::ConstantExpr>(args[4]))
-   {
+   //if(isWrite == 1 && !isa<klee::ConstantExpr>(args[4]))
+   //{
      //s2eExecutor->m_s2e->getCorePlugin()->onPortAccess.emit(
        // s2eState, expr, value, isWrite);            
 //g_s2e->getWarningsStream(s2eState) << "arg4: " << args[4] <<" isa: " << isa<klee::ConstantExpr>(args[4]) << std::endl;
      //S2EHandler::handlerCorruptEip(*state, expr, value); 
-    s2eExecutor->m_s2e->getCorePlugin()->onCorruptEip.emit(s2eState, args[4], expr);
+    s2eExecutor->m_s2e->getCorePlugin()->onCorruptEip.emit(s2eState, args[4], expr, isWrite);
      //g_s2e->getDebugStream(s2eState) << expr->getKid(0)->getKid(1)->getKid(0)->getWidth()<< std::endl;
-   }
+   //}
    //g_s2e->getExecutor()->terminateStateEarly(*s2eState,"forkAndConcretize"); 
     g_s2e->getDebugStream(s2eState) << "forkAndConcretize(" << expr << ")" << std::endl;
  
     //s2eState->disableSymbolicExecution();
 
-    klee::ConstraintManager cm(state->constraints) ;
+    //klee::ConstraintManager cm(state->constraints) ;
 /*
     std::vector< ref<Expr> >::const_iterator it = state->constraints.begin();
     for(; it != s2eState->constraints.end() ;it++)                              
@@ -478,18 +479,47 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
     }                                                                        
 */
 
-    bool res;
-    s2eExecutor->getSolver()->mayBeTrue(Query(cm,state->constraints.getConcolicConstraints()), res);
-//    g_s2e->getWarningsStream(s2eState) << "RES: " << res << std::endl;
-    if(res)
-      cm.addConstraint(state->constraints.getConcolicConstraints());
+    bool swapConcolic = false;
+    if(g_s2e->getExecutor()->getConcolicMode())
+    {
+      //s2eExecutor->getSolver()->mayBeTrue(Query(state->constraints, state->constraints.getConcolicConstraints()), swapConcolic);
+      //g_s2e->getWarningsStream(s2eState) << "RES: " << swapConcolic << std::endl;
+    
+      //if(swapConcolic)
+        // cm.addConstraint(state->constraints.getConcolicConstraints());
+      //if(swapConcolic)
+        state->constraints.swapConstraints();
+/*
+      else
+      {
+        std::vector< klee::ref<klee::Expr> >::iterator it;                                                        
+                                                                                                          
+        for(it=state->constraints.concolic_constraints.begin() ; it!=state->constraints.concolic_constraints.end() ; it++)
+        {                                                                                                         
+          bool rr;                                                                                                
+          g_s2e->getExecutor()->getSolver()->mayBeTrue(klee::Query(state->constraints, *it), rr);                     
+          if(!rr)                                                                                                 
+          {                                                                                                       
+            state->constraints.concolic_constraints.erase(it);                                                        
+            it--;                                                                                                 
+            //break;                                                                                              
+          }                                                                                                       
+        }                                                                                                         
+
+      }
+*/
+    }
+      //cm.addConstraint(state->constraints.getConcolicConstraints());
 
     if (state->forkDisabled) {
     //if (1) {
         //Simply pick one possible value and continue
         ref<klee::ConstantExpr> value;
         bool success = s2eExecutor->getSolver()->getValue(
-                Query(/*state->constraints*/cm, expr), value);
+                Query(state->constraints, expr), value);
+    
+        if(g_s2e->getExecutor()->getConcolicMode())
+          state->constraints.swapConstraints();
 
         if (success) {
             g_s2e->getDebugStream(s2eState) << "Chosen " << value << std::endl;
@@ -507,7 +537,7 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
     //cm.erase(cm.concolicSize);
     //cm.concolicSize = 0;
     // go starting from min
-    Query query(/*state->constraints*/cm, expr);
+    Query query(state->constraints, expr);
     uint64_t step = 1;
     std::vector< uint64_t > values;
     std::vector< ref<Expr> > conditions;
@@ -533,8 +563,9 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
         bool success = s2eExecutor->getSolver()->mayBeTrue(query.withExpr(eqCond), res);
         assert(success && "FIXME: Unhandled solver failure");
 
+//g_s2e->getWarningsStream(s2eState) << "aaaaaaaaaaaaaaaaaaaaaaa"<< std::endl;
         if(res) {
-            s2eExecutor->m_s2e->getWarningsStream(s2eState) << "value = " << std::hex << min << std::endl;
+            /*s2eExecutor->m_s2e->getWarningsStream(s2eState)*/g_s2e->getWarningsStream(s2eState) << "value = " << std::hex << min << std::endl;
             //s2eExecutor->m_s2e->getWarningsStream(s2eState) << "max = " << max << std::endl;
             //s2eExecutor->m_s2e->getWarningsStream(s2eState) << "step = " << step << std::endl;
             values.push_back(min);
@@ -609,6 +640,9 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
         if(min + step > max)
             step = max - min;
     }
+
+    if(g_s2e->getExecutor()->getConcolicMode())
+      state->constraints.swapConstraints();
 
     std::vector<ExecutionState *> branches;
     s2eExecutor->branch(*state, conditions, branches);
@@ -1129,17 +1163,59 @@ void S2EExecutor::readRamConcrete(S2EExecutionState *state,
                op.first->size == S2E_RAM_OBJECT_SIZE);
 
         ObjectState *wos = NULL;
+
+        //klee::ExecutionState temp(state->constraints.getConstraints());
+
+//        ExecutionState temp(state->constraints.getConstraints());
+        //temp.addConstraint(state->constraints.getConcolicConstraints());
+        //std::cout << "size : " << size << std::endl;
+        //state->constraints.backupConstraints();
+        //state->addConstraint(state->constraints.getConcolicConstraints());
+        //ExecutionState *ptr=NULL;
+        //int i=0;
+
         for(uint64_t i=0; i<size; ++i) {
             if(!op.second->readConcrete8(page_offset+i, buf+i)) {
                 if(!wos) {
                     op.second = wos = state->addressSpace.getWriteable(
                                                     op.first, op.second);
                 }
-                buf[i] = toConstant(*state, wos->read8(page_offset+i),
-                       "memory access from concrete code")->getZExtValue(8);
+                //buf[i] = toConstant(*state, wos->read8(page_offset+i),
+                //       "memory access from concrete code")->getZExtValue(8);
+        /*std::cout << "backup start" << std::endl;
+        state->constraints.backupConstraints();
+        std::cout << "backup over" << std::endl;
+        addConstraint(*state, state->constraints.getConcolicConstraints());*/
+        //ExecutionState temp(state->constraints.getConstraints());
+        //temp.addConstraint(state->constraints.getConcolicConstraints());
+        //ExecutionState temp(state->constraints.getConstraints());
+//        if(i == 0)
+//        {
+//        temp.addConstraint(state->constraints.getConcolicConstraints());
+        //std::cout << "backup over" << std::endl;
+        //ptr = &temp;
+//        i = 1;
+//        }
+//state->constraints.swapConstraints();
+
+                buf[i] = toConstantSilent(*state, wos->read8(page_offset+i))->getZExtValue(8);
+                //ref<klee::ConstantExpr> gg = toConstantSilent(/**state*/temp, wos->read8(page_offset+i));
+                //buf[i] = gg->getZExtValue(8);
+//state->addConstraint(EqExpr::create(wos->read8(page_offset+i),gg )); 
+                state->concrete_byte.push_back((hostAddress & S2E_RAM_OBJECT_MASK) + page_offset + i);
+                //state->concrete_byte.push_back(make_pair((hostAddress & S2E_RAM_OBJECT_MASK) + page_offset + i, wos->read8(page_offset+i)));
+                //klee::ConstantExpr *CE = dyn_cast<klee::ConstantExpr>(buf[i]);
+                //buf[i] = (uint8_t) CE->getZExtValue(8);
+                //m_s2e->getDebugStream() << "page_offset+"<< i << " : " << std::hex << (hostAddress & S2E_RAM_OBJECT_MASK) + page_offset+i << " size: "<< size << " value : " << buf[i] << std::endl; 
                 wos->write8(page_offset+i, buf[i]);
+
+                //if(!state->m_symbexEnabled)
+                //wos->markByteSymbolic(page_offset+i);
+                //wos->setKnownSymbolic(page_offset+i);
+//state->constraints.swapConstraints();
             }
         }
+        //state->constraints.restoreConstraints();
     } else {
         /* Access spans multiple MemoryObject's */
         uint64_t size1 = S2E_RAM_OBJECT_SIZE - page_offset;
@@ -1947,16 +2023,19 @@ uintptr_t S2EExecutor::executeTranslationBlock(
 
     bool executeKlee = m_executeAlwaysKlee;
 
-    //if(state->getPc() == 0x080496e5)
+    //if(state->getPc() < 0xC0000000)
     //{
       //state->dumpStack(40,state->getSp());                
       //state->dumpX86State( g_s2e->getWarningsStream() );
 
+      //state->enableForking();
+      //state->enableSymbolicExecution();
     //}
-    //  state->disableForking();
 
     //else
-    //  state->enableForking();
+    //{
+      //state->disableSymbolicExecution();
+    //}
 
     /* Think how can we optimize if symbex is disabled */
     if(true /*state->m_symbexEnabled*/) {
@@ -2189,7 +2268,7 @@ S2EExecutor::StatePair S2EExecutor::fork(ExecutionState &current,
     static int count=0;
     assert(dynamic_cast<S2EExecutionState*>(&current));
     assert(!static_cast<S2EExecutionState*>(&current)->m_runningConcrete);
-//S2EExecutionState* ss = dynamic_cast<S2EExecutionState*>(&current);
+//S2EExecutionState *ss = dynamic_cast<S2EExecutionState*>(&current);
   //   m_s2e->getWarningsStream()<< "conditions : " << condition << " ip: " <<std::hex << ss->getPc() <<std::endl;
 
     StatePair res = Executor::fork(current, condition, isInternal);
@@ -2213,8 +2292,8 @@ S2EExecutor::StatePair S2EExecutor::fork(ExecutionState &current,
         doStateFork(static_cast<S2EExecutionState*>(&current),
                        newStates, newConditions);
     }
-   
-    if(ConcolicMode)
+/*   
+    if(ConcolicMode & ss->getPc() < 0x40000000)
     {
       if(res.first && !res.second)
       {
@@ -2224,7 +2303,7 @@ S2EExecutor::StatePair S2EExecutor::fork(ExecutionState &current,
       {
         addConstraint(current, Expr::createIsZero(condition));
       }
-    }
+    }*/
     return res;
 }
 
@@ -2432,12 +2511,12 @@ void S2EExecutor::queueStateForMerge(S2EExecutionState *state)
     static_cast<MergingSearcher*>(searcher)->queueStateForMerge(*state, mergePoint);
     throw CpuExitException();
 }
-
+/*
 bool S2EExecutor::getConcolicMode()
 {
   return ConcolicMode;
 }
-
+*/
 } // namespace s2e
 
 /******************************/
