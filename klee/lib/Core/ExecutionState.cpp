@@ -61,6 +61,23 @@ StackFrame::~StackFrame() {
 
 /***/
 
+void ExecutionState::initialize() {
+#ifdef __MHHUANG_MEASURE_TIME__
+  currentProcStat = allProcStat.end();
+  lastCr3 = 0;
+  lastStackSize = 0;
+  pCurProcStat = NULL;
+  pCurHelperStat = NULL;
+  pHelperCC = NULL;
+  pHelperCCCaller = NULL;
+#endif
+#if defined(__MHHUANG_EBP_EXPLOIT__)
+  inHelper = false;
+#endif
+
+  isConcolicMode = true;
+}
+
 ExecutionState::ExecutionState(KFunction *kf) 
   : fakeState(false),
     underConstrained(false),
@@ -73,8 +90,10 @@ ExecutionState::ExecutionState(KFunction *kf)
     instsSinceCovNew(0),
     coveredNew(false),
     forkDisabled(false),
-    ptreeNode(0) {
+    ptreeNode(0)
+{
   pushFrame(0, kf);
+  initialize();
 }
 
 ExecutionState::ExecutionState(const std::vector<ref<Expr> > &assumptions) 
@@ -84,6 +103,7 @@ ExecutionState::ExecutionState(const std::vector<ref<Expr> > &assumptions)
     queryCost(0.),
     addressSpace(this),
     ptreeNode(0) {
+  initialize();
 }
 
 ExecutionState::~ExecutionState() {
@@ -155,6 +175,55 @@ std::ostream &klee::operator<<(std::ostream &os, const MemoryMap &mm) {
   }
   os << "}";
   return os;
+}
+
+bool ExecutionState::evaluate(TimingSolver &solver, ref<Expr> expr, Solver::Validity &result) const {
+    return solver.oEvaluate(*this, expr, result);
+}
+
+bool ExecutionState::mustBeTrue(TimingSolver &solver, ref<Expr> expr, bool &result) const {
+    return solver.oMustBeTrue(*this, expr, result);
+}
+
+bool ExecutionState::mustBeFalse(TimingSolver &solver, ref<Expr> expr, bool &result) const {
+    return solver.oMustBeFalse(*this, expr, result);
+}
+
+bool ExecutionState::mayBeTrue(TimingSolver &solver, ref<Expr> expr, bool &result) const {
+    return solver.oMayBeTrue(*this, expr, result);
+}
+
+bool ExecutionState::mayBeFalse(TimingSolver &solver, ref<Expr> expr, bool &result) const {
+    return solver.oMayBeFalse(*this, expr, result);
+}
+
+bool ExecutionState::getValue(TimingSolver &solver, ref<Expr> expr, ref<ConstantExpr> &result) const {
+    return solver.oGetValue(*this, expr, result);
+}
+
+bool ExecutionState::getInitialValues(TimingSolver &solver, 
+        const std::vector<const Array*> &objects, 
+        std::vector< std::vector<unsigned char> > &result) const {
+    return solver.oGetInitialValues(*this, objects, result);
+}
+
+/* An ugly hack to let Executor::getSymbolicSolution works */
+ExecutionState* ExecutionState::getClone() const { 
+    return new ExecutionState(*this); 
+}
+
+void ExecutionState::addConstraint(ref<Expr> e) const {
+#ifdef __MHHUANG_MEASURE_TIME__
+    //assert(currentProcStat != allProcStat.end() && "Something Error!\n");
+    pCurProcStat->numAddCon++;
+    clock_t start = clock();
+#endif
+
+    constraints.cAddConstraint(e);
+
+#ifdef __MHHUANG_MEASURE_TIME__
+    pCurProcStat->tAddCon += (clock()-start);
+#endif
 }
 
 bool ExecutionState::merge(const ExecutionState &b) {
@@ -309,8 +378,8 @@ bool ExecutionState::merge(const ExecutionState &b) {
   constraints = ConstraintManager();
   for (std::set< ref<Expr> >::iterator it = commonConstraints.begin(), 
          ie = commonConstraints.end(); it != ie; ++it)
-    constraints.addConstraint(*it);
-  constraints.addConstraint(OrExpr::create(inA, inB));
+    addConstraint(*it);
+  addConstraint(OrExpr::create(inA, inB));
 
   return true;
 }

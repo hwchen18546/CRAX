@@ -34,6 +34,65 @@
 #define _EXEC_ALL_H_
 
 #include "qemu-common.h"
+/* The options start with __KS_ means this should be defined in Expr.h and exec-all.h */
+
+//#define __MHHUANG_TRACE_POINT__     /* Add a spacial function that will be called when a spacial op-code is hit */
+#define __MHHUANG_GDB__             /* Enable functions only use in gdb */
+//#define __MHHUANG_QEMU_S2E_WRAPPER__    /* Provide a generic entry for qemu to call s2e functions */
+//#define __KS_MHHUANG_STATE_FORK__
+//#define __MHHUANG_S2E_TRACE_EXEC__  /* Add a helper call in the beginning of each TB, the helper call will enter BaseInstructions.cpp */
+
+#ifdef __MHHUANG_TRACE_POINT__
+//#define __MHHUANG_SEND_PID__        /* Enable send pid function in helper_mhhuang_trace_point */
+#ifdef CONFIG_S2E
+#define __MHHUANG_MODE_CALL_FROM_GUEST__    0x5300
+#else
+#define __MHHUANG_MODE_CALL_FROM_GUEST__    0
+#endif
+#endif
+
+#if defined(__MHHUANG_QEMU_S2E_WRAPPER__) && defined(__KS_MHHUANG_STATE_FORK__)
+//#define __KS_MHHUANG_SYM_READ__
+
+#ifdef __KS_MHHUANG_SYM_READ__
+#define KS_PSEUDO_VAR_PREFIX    "SymRead"
+#endif
+
+#endif
+
+#ifdef __MHHUANG_QEMU_S2E_WRAPPER__
+#define ACTION_IS_SYMBOLIC              5
+#define ACTION_SYM_READ                 6
+#define ACTION_SYM_WRITE                8
+#define ACTION_CAN_BE_VALID_ADDR        9
+#define ACTION_CONCRETIZE               10
+#define ACTION_TO_VALID_ADDR            11
+#define ACTION_CONCRETIZE_TO            12
+#endif
+
+#ifdef __MHHUANG_SEND_PID__
+#define __MHHUANG_PRINT_EXECUTION__ /* Print the pc of executed tb */
+#endif
+
+#ifdef __MHHUANG_SEND_PID__
+//#define __MHHUANG_CONCRETIZE_KERNEL__           /* Concretize when enter kernel */
+#endif
+
+#ifdef __MHHUANG_PRINT_EXECUTION__
+#define __MHHUANG_MODE_PRINT_EIP__          1
+#define __MHHUANG_MODE_DO_NOTHING__         2
+#define __MHHUANG_MODE_CALL__               3
+#define __MHHUANG_MODE_RET__                4
+#endif
+
+#ifdef __KS_MHHUANG_STATE_FORK__
+#define EVENT_WRITE     0   /* Terminate if memory write to specific address */
+#define EVENT_SYM_EIP   1   /* Terminate when symbolic EIP is detected */
+#endif
+
+#ifdef __MHHUANG_S2E_TRACE_EXEC__
+#define __MHHUANG_MODE_ENTER_TB__          0x550400
+#endif
 
 /* allow to see translation results - the slowdown should be negligible, so we leave it */
 #define DEBUG_DISAS

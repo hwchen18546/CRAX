@@ -76,8 +76,1523 @@ using namespace klee;
 
 int S2EExecutionState::s_lastStateID = 0;
 
+#ifdef __KS_MHHUANG_SYM_READ__
+static klee::ref<klee::Expr> getBoundConstraint(
+        klee::ref<klee::Expr> expr, uint32_t min, uint32_t max) {
+    if(min == max) {
+        klee::ref<klee::Expr> rangeBound = klee::EqExpr::create(expr, 
+                klee::ConstantExpr::create(min, klee::Expr::Int32));
+        return rangeBound;
+    }
+    else {
+        klee::ref<klee::Expr> upperBound = klee::UleExpr::create(expr, 
+                klee::ConstantExpr::create(max, klee::Expr::Int32));
+        klee::ref<klee::Expr> lowerBound = klee::UgeExpr::create(expr,
+                klee::ConstantExpr::create(min, klee::Expr::Int32));
+        klee::ref<klee::Expr> rangeBound = klee::AndExpr::create(upperBound, lowerBound);
+        return rangeBound;
+    }
+}
+
+ValueSet::ValueSet(const ValueSet &v) {
+    m_size = v.m_size;
+    m_blockSet = v.m_blockSet;
+}
+
+/* Determines whether the interval [start, end] contains some value in this ValueSet */
+bool ValueSet::isOverlap(uint32_t start, uint32_t end) {
+    assert(start<=end && "Misuse of isOverlap()");
+
+    BlockSetIter it = m_blockSet.upper_bound(ValueBlock(start, 1));
+    if(it != m_blockSet.begin())
+        it--;
+    while(it != m_blockSet.end() && it->start <= end) {
+        uint32_t currStart = it->start;
+        uint32_t currEnd = it->start+it->size-1;
+
+        if(currStart < start) {
+            if(currEnd >= start) {
+                return true;
+            }
+        }
+        else {
+            return true;
+        }
+
+        it++;
+    }
+
+    return false;
+}
+
+/* Determines whether there is any value A in [start, end], where the values
+   A, A+1, ... , A+size-1, are all in this ValueSet */
+bool ValueSet::containHeadOfConsecutiveBytes(uint32_t start, uint32_t end, uint32_t size) {
+    BlockSetIter it = m_blockSet.upper_bound(ValueBlock(start, 1));
+    if(it != m_blockSet.begin())
+        it--;
+    while(it != m_blockSet.end() && it->start<=end) {
+        uint32_t currStart = it->start;
+        uint32_t currEnd = it->start+it->size-1;
+
+        if(currStart < start) {
+            if(currEnd >= start && currEnd-start+1 >= size) {
+                return true;
+            }
+        }
+        else {
+            if(currStart <= end && currEnd-currStart+1 >= size) {
+                return true;
+            }
+        }
+
+        it++;
+    }
+
+    return false;
+}
+
+/* Return true if all values in range [start, end] are in this ValueSet */
+bool ValueSet::isAllCovered(uint32_t start, uint32_t end) {
+    BlockSetIter it = m_blockSet.upper_bound(ValueBlock(start, 1));
+    if(it != m_blockSet.begin())
+        it--;
+    
+    uint32_t currStart = it->start;
+    uint32_t currEnd = it->start+it->size-1;
+
+    if(currStart <= start && currEnd >= end) {
+        return true;
+    }
+
+    return false;
+}
+
+uint32_t ValueSet::numBlocks() {
+    return m_blockSet.size();
+}
+
+void ValueSet::insertInterval(uint32_t start, uint32_t end) {
+    BlockSetIter it = m_blockSet.upper_bound(ValueBlock(start, 1));
+    if(it != m_blockSet.begin())
+        it--;
+    /* In order to merge adjanct blocks, we use the bound end+1 */
+    while(it != m_blockSet.end() && (it->start <= end+1 || end == 0xffffffff)) {
+        BlockSetIter it2 = it;
+        it++;
+
+        uint32_t currStart = it2->start;
+        uint32_t currEnd = it2->start+it2->size-1;
+
+        if(currStart < start) {
+            /* In order to merge adjanct blocks, we use the bound start-1
+               We don't need to worry that start-1 will cause overflow, since the 
+               currStart < start condition ensures start > 0 */
+            if(currEnd >= start-1) {
+                start = currStart;
+
+                m_size = m_size-it2->size;
+                m_blockSet.erase(it2);
+            }
+        }
+        else {
+            if(currEnd > end) {
+                end = currEnd;
+            }
+
+            m_size = m_size-it2->size;
+            m_blockSet.erase(it2);
+        }
+    }
+
+    ValueBlock block(start, end-start+1);
+    m_blockSet.insert(block);
+    m_size = m_size+(end-start+1);
+}
+
+void ValueSet::removeInterval(uint32_t start, uint32_t end) {
+    uint32_t deletedStart = start;
+    uint32_t deletedEnd = end;
+
+    BlockSetIter it = m_blockSet.upper_bound(ValueBlock(start, 1));
+    if(it != m_blockSet.begin())
+        it--;
+    while(it != m_blockSet.end() && it->start <= end) {
+        bool needDelete = true;
+
+        BlockSetIter it2 = it;
+        it++;
+
+        uint32_t currStart = it2->start;
+        uint32_t currEnd = it2->start+it2->size-1;
+
+        if(currStart < start) {
+            if(currEnd >= start) {
+                deletedStart = currStart;
+            }
+            else {
+                needDelete = false;
+            }
+        }
+
+        if(currEnd > end) {
+            deletedEnd = currEnd;
+        }
+
+        if(needDelete) {
+            m_size = m_size-it2->size;
+            m_blockSet.erase(it2);
+        }
+    }
+
+    if(deletedStart < start) {
+        m_blockSet.insert(ValueBlock(deletedStart, start-deletedStart));
+        m_size = m_size+(start-deletedStart);
+    }
+
+    if(deletedEnd > end) {
+        m_blockSet.insert(ValueBlock(end+1, deletedEnd-end));
+        m_size = m_size+(deletedEnd-end);
+    }
+}
+
+void ValueSet::substract(ValueSet &v) {
+    /* The simplest way, we can use more optimation */
+    BlockSetIter it;
+    for(it=v.m_blockSet.begin(); it!=v.m_blockSet.end(); it++) {
+        removeInterval(it->start, it->start+it->size-1);
+    }
+}
+
+void ValueSet::pushBackInterval(uint32_t start, uint32_t end) {
+    m_size = m_size+(end-start+1);
+
+    if(m_blockSet.empty()) {
+        m_blockSet.insert(ValueBlock(start, end-start+1));
+        return;
+    }
+
+    BlockSetIter it = m_blockSet.end();
+    it--;
+
+    assert(it->start+it->size <= start);
+
+    if(it->start+it->size == start) {
+        it->size = it->size+(end-start+1);
+    }
+    else {
+        m_blockSet.insert(it, ValueBlock(start, end-start+1));
+    }
+}
+
+void ValueSet::clear() {
+    m_blockSet.clear();
+    m_size = 0;
+}
+
+uint32_t ValueSet::front() {
+    if(m_size == 0) {
+        return 0;
+    }
+
+    assert(!m_blockSet.empty());
+
+    BlockSetIter it = m_blockSet.begin();
+    return it->start;
+}
+
+uint32_t ValueSet::back() {
+    if(m_size == 0) {
+        return 0;
+    }
+
+    assert(!m_blockSet.empty());
+
+    BlockSetIter it = m_blockSet.end();
+    it--;
+    return it->start+it->size-1;
+}
+
+ValueSet::iterator ValueSet::begin() {
+    iterator it;
+    it.m_pBlockSet = &m_blockSet;
+    it.m_it = m_blockSet.begin();
+    if(it.m_it != m_blockSet.end()) {
+        it.m_currentValue = it.m_it->start;
+    }
+    else {
+        it.m_currentValue = 0;
+    }
+
+    return it;
+}
+
+ValueSet::iterator ValueSet::end() {
+    iterator it;
+    it.m_pBlockSet = &m_blockSet;
+    it.m_it = m_blockSet.end();
+    it.m_currentValue = 0;
+
+    return it;
+}
+
+ValueSet::iterator ValueSet::lower_bound(uint32_t key) {
+    iterator it;
+    it.m_pBlockSet = &m_blockSet;
+
+    it.m_it = m_blockSet.upper_bound(ValueBlock(key, 1));
+    if(it.m_it != m_blockSet.begin())
+        it.m_it--;
+    while(it.m_it != m_blockSet.end() && it.m_it->start <= key) {
+        uint32_t currStart = it.m_it->start;
+        uint32_t currEnd = it.m_it->start+it.m_it->size-1;
+
+        if(currStart < key) {
+            if(currEnd >= key) {
+                it.m_currentValue = key;
+                return it;
+            }
+        }
+        else {
+            it.m_currentValue = key;
+            return it;
+        }
+
+        it.m_it++;
+    }
+
+    return end();
+}
+
+bool ValueSet::iterator::operator==(const ValueSet::iterator &rhs) {
+    return m_it == rhs.m_it &&
+        m_currentValue == rhs.m_currentValue &&
+        m_pBlockSet == rhs.m_pBlockSet;
+}
+
+bool ValueSet::iterator::operator!=(const ValueSet::iterator &rhs) {
+    return m_it != rhs.m_it ||
+        m_currentValue != rhs.m_currentValue ||
+        m_pBlockSet != rhs.m_pBlockSet;
+}
+
+ValueSet::iterator& ValueSet::iterator::operator=(const ValueSet::iterator &rhs) {
+    /* We don't need to implement copy constructor since the default copy
+       constructor also do the same thing */
+    m_it = rhs.m_it;
+    m_currentValue = rhs.m_currentValue;
+    m_pBlockSet = rhs.m_pBlockSet;
+
+    return *this;
+}
+
+ValueSet::iterator& ValueSet::iterator::operator++(int) {
+    if(m_it != m_pBlockSet->end()) {
+        if(m_currentValue == m_it->start+m_it->size-1) {
+            m_it++;
+            if(m_it != m_pBlockSet->end()) {
+                m_currentValue = m_it->start;
+            }
+            else {
+                m_currentValue = 0;
+            }
+        }
+        else {
+            m_currentValue++;
+        }
+    }
+
+    return *this;
+}
+
+uint32_t ValueSet::iterator::operator*() {
+    return m_currentValue;
+}
+
+void ValueSet::dumpAllBlocks() {
+    BlockSetIter it;
+    for(it=m_blockSet.begin(); it!=m_blockSet.end(); it++) {
+        std::cout << "0x" << std::hex << std::setw(8) << std::setfill('0') << it->start <<
+            " - 0x" << std::setw(8) << std::setfill('0') << it->start+it->size-1 << std::endl;
+    }
+}
+
+bool ValueSet::checkSize() {
+    int size = 0;
+    BlockSetIter it;
+    for(it=m_blockSet.begin(); it!=m_blockSet.end(); it++) {
+        size = size+it->size;
+    }
+
+    if(size == m_size) {
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+ValidAddrSet::ValidAddrSet(S2EExecutionState *state, bool onlySymbolic) {
+    m_size = 0;
+
+    bool activated = false;
+    if(state->m_active == false) {
+        state->m_active = true;
+        activated = true;
+    }
+
+    uint64_t addr = 0;
+    while(addr<=0xffffffff) {
+        uint64_t pageStart = (addr & TARGET_PAGE_MASK);
+        uint64_t hostAddress = state->getHostAddress(addr);
+        if(hostAddress != (uint64_t)-1) {
+            if(!onlySymbolic) {
+                pushBackInterval(pageStart, pageStart+TARGET_PAGE_SIZE-1);
+                addr = pageStart + TARGET_PAGE_SIZE;
+            }
+            else {
+                uint64_t objectStart = (addr & S2E_RAM_OBJECT_MASK);
+                klee::ObjectPair op = state->addressSpace.findObject(hostAddress & S2E_RAM_OBJECT_MASK);
+                if(!op.second->isAllConcrete()) {
+                    uint64_t objectOffset = 0;
+                    uint64_t objectSize = op.second->size;
+
+                    for(; objectOffset<objectSize; objectOffset++) {
+                        if(op.second->isByteKnownSymbolic(objectOffset) && 
+                                !isa<klee::ConstantExpr>(op.second->read8(objectOffset))) {
+                            pushBackInterval(objectStart+objectOffset, objectStart+objectOffset);
+                        }
+                    }
+                }
+
+                addr = objectStart + S2E_RAM_OBJECT_SIZE;
+            }
+        }
+        else {
+            addr = pageStart + TARGET_PAGE_SIZE;
+        }
+    }
+
+    if(activated)
+        state->m_active = false;
+}
+
+void ValidAddrSet::adjustRange(uint32_t derefSize) {
+    BlockSetIter it;
+    for(it=m_blockSet.begin(); it!=m_blockSet.end();) {
+        if(it->size < derefSize) {
+            BlockSetIter it2 = it;
+            it++;
+
+            m_size = m_size-it2->size;
+            m_blockSet.erase(it2);
+        }
+        else {
+            it->setSize(it->size-derefSize+1);
+            m_size = m_size-derefSize+1;
+
+            it++;
+        }
+    }
+}
+
+/* The original ValidAddrSet only contains the addresses that contains symbolic bytes,
+   now we need to adjust with the read size, ex: if the read size is 4 bytes
+
+    |********|      => Valid address set for 4 byte read
+        |******|    => Address that contains symbolic byte
+
+     |*******|      => Valid address set for 4 byte read, and the value read out is symbolic
+
+   The validSet parameter is the Valid address set for 4 byte read, as illustrated. */
+void ValidAddrSet::adjustSymbolicRange(uint32_t derefSize, ValidAddrSet &validSet) {
+    BlockSet blockSet = m_blockSet;
+
+    BlockSetIter it;
+    for(it=blockSet.begin(); it!=blockSet.end(); it++) {
+        uint32_t currStart = it->start;
+        uint32_t currEnd = it->start+it->size-1;
+
+        /* To avoid overflow, since address can't have the value below 0x4, this won't be
+           a problem */
+        assert(currStart >= derefSize);
+
+        for(int i=0; i<derefSize-1 && currEnd-i>=currStart; i++) {
+            if(!validSet.isOverlap(currEnd-i, currEnd-i)) {
+                removeInterval(currEnd-i, currEnd-i);
+            }
+        }
+
+        for(int i=1; i<derefSize; i++) {
+            if(validSet.isOverlap(currStart-i, currStart-i)) {
+                insertInterval(currStart-i, currStart-i);
+            }
+        }
+    }
+}
+
+SymDeref::SymDeref(klee::ref<klee::Expr> a, 
+        klee::ref<klee::Expr> v, 
+        S2EExecutionState *m, 
+        ValidAddrSet *vsa,
+        ValidAddrSet *vca) {
+    addrExpr = a;
+    valueExpr = v;
+    metaState = m;
+    validSymbolicAddrSet = vsa;
+    validConcreteAddrSet = vca;
+    refCount = 0;
+}
+
+SymDeref::~SymDeref() {
+    delete metaState;
+    delete validSymbolicAddrSet;
+    delete validConcreteAddrSet;
+}
+
+klee::ref<klee::Expr> SymDeref::readMemory(uint32_t addr) {
+    assert(metaState != NULL);
+
+    /* A hack to avoid assertion fail */
+    metaState->m_active = true;
+
+    klee::ref<klee::Expr> res = metaState->readMemory(addr, valueExpr->getWidth());
+
+    metaState->m_active = false;
+
+    return res;
+}
+
+bool SymDeref::containValueInConcreteBlock(uint32_t startAddr, uint32_t endAddr, ValueSet *valueSet) {
+    ValueSet::iterator it = validConcreteAddrSet->lower_bound(startAddr);
+
+    while(it!=validConcreteAddrSet->end() && (*it) <= endAddr) {
+        klee::ref<klee::Expr> ve = readMemory(*it);
+        klee::ref<klee::ConstantExpr> vce = dyn_cast<klee::ConstantExpr>(ve);
+
+        assert(!vce.isNull());
+
+        uint32_t v = vce->getZExtValue();
+        if(valueSet->isOverlap(v, v)) {
+            return true;
+        }
+
+        it++;
+    }
+
+    return false;
+}
+
+/* Before calling this, must ensure that cons can be satisfied, and var can be a valid value
+   subject to state->constraints */
+ValueSet RestrictedVarEvaluator::getValueSet(
+        klee::ref<klee::Expr> expr,
+        klee::ref<klee::Expr> cons,
+        RestrictedVar var,
+        uint32_t numLimit) {
+    std::vector<klee::ref<klee::Expr> > tempConstraints = m_state->constraints.getTempConstraints();
+
+    ValueSet valueSet;
+
+    /* The addTempConstraint call will make ConstraintManager to be readyToUse, so it must
+       work. But we still need a more simple architecture */
+    m_state->constraints.addTempConstraint(cons);
+    if(var.expr.isNull()==false && var.expr->getWidth()==klee::Expr::Bool) {
+        m_state->constraints.addTempConstraint(var.expr);
+    }
+
+    while(valueSet.size() < numLimit) {
+        klee::ref<klee::ConstantExpr> valueCE;
+        assert(m_solver->oGetValue(*m_state, expr, valueCE));
+
+        uint32_t value = valueCE->getZExtValue();
+        valueSet.insertInterval(value, value);
+
+        /* Test whether expr can be other value */
+        klee::ref<klee::Expr> notEqual = klee::Expr::createIsZero(
+                klee::EqExpr::create(expr, valueCE));
+        bool res;
+        assert(m_solver->oMayBeTrue(*m_state, notEqual, res));
+        if(res) {
+            m_state->constraints.addTempConstraint(notEqual);
+        }
+        else {
+            break;
+        }
+    }
+
+    m_state->constraints.setTempConstraints(tempConstraints);
+    return valueSet;
+}
+
+/* Before calling this, must ensure that cons can be satisfied subject to state->constraints */
+ValueSet RestrictedVarEvaluator::getValueSet(
+        klee::ref<klee::Expr> expr,
+        klee::ref<klee::Expr> cons,
+        uint32_t numLimit) {
+    return getValueSet(expr, cons, RestrictedVar(), numLimit);
+}
+
+#define NUM_VALUE_TRIAL 5
+uint32_t RestrictedVarEvaluator::getValue(
+        RestrictedVar var,
+        klee::ref<klee::Expr> cons) {
+    if(cons.isNull()) {
+        m_cons = klee::ConstantExpr::create(1, klee::Expr::Bool);
+    }
+    else {
+        m_cons = cons;
+    }
+
+    m_var = var;
+
+    if(m_var.expr->getWidth() == klee::Expr::Bool) {
+        klee::ref<klee::Expr> totalCons = klee::AndExpr::create(
+                m_var.expr,
+                m_cons);
+        bool res;
+        assert(m_solver->oMayBeTrue(*m_state, totalCons, res));
+        if (res)
+            return 1;
+        return 0;
+    }
+    else {
+        /* First check if the cached value works, this is because the var parameter of
+           consecutive query are usually the same, just check the previous result. */
+        if(m_lastValue != 0 && m_var.valueSet->isOverlap(m_lastValue, m_lastValue)) {
+            klee::ref<klee::Expr> equal = klee::EqExpr::create(m_var.expr, 
+                    klee::ConstantExpr::create(m_lastValue, m_var.expr->getWidth()));
+            klee::ref<klee::Expr> totalCons = klee::AndExpr::create(equal, m_cons);
+
+            bool res;
+            assert(m_solver->oMayBeTrue(*m_state, totalCons, res));
+            if(res) {
+                return m_lastValue;
+            }
+        }
+
+        bool res;
+        assert(m_solver->oMayBeTrue(*m_state, m_cons, res));
+        if(!res) {
+            return 0;
+        }
+
+        /* Find a sample of values, fast check if they are valid */
+        ValueSet possibleValue = getValueSet(m_var.expr, m_cons, NUM_VALUE_TRIAL);
+
+        /* Because this function don't need to find the smallest valid value, we can
+           fast check whether these possible value are valid */
+        ValueSet::iterator it;
+        for(it=possibleValue.begin(); it!=possibleValue.end(); it++) {
+            uint32_t m_lastValue = *it;
+            if(m_var.valueSet->isOverlap(m_lastValue, m_lastValue)) {
+                return m_lastValue;
+            }
+        }
+
+        /* May have more possible values */
+        if(possibleValue.size() == NUM_VALUE_TRIAL) {
+            uint32_t startValue = 0;
+            uint32_t endValue = 0;
+
+            it = possibleValue.begin();
+            if(*it == 0) {
+                /* We don't consider the case that possible value is 0 */
+                startValue = 1;
+                it++;
+            }
+            for(; it!=possibleValue.end(); it++) {
+                endValue = (*it)-1;
+
+                if(startValue <= endValue) {
+                    m_lastValue = checkAndGetValue(startValue, endValue);
+                    if(m_lastValue != 0) {
+                        return m_lastValue;
+                    }
+                }
+
+                startValue = (*it)+1;
+            }
+            if(startValue != 0) {
+                m_lastValue = checkAndGetValue(startValue, 0xffffffff);
+                if(m_lastValue != 0) {
+                    return m_lastValue;
+                }
+            }
+        }
+
+        return 0;
+    }
+}
+
+uint32_t RestrictedVarEvaluator::checkAndGetValue(uint32_t min, uint32_t max) {
+    if(m_var.valueSet->isOverlap(min, max) == false) {
+        return 0;
+    }
+        
+    klee::ref<klee::Expr> rangeBound = getBoundConstraint(m_var.expr, min, max);
+    klee::ref<klee::Expr> totalCons = klee::AndExpr::create(m_cons, rangeBound);
+
+    bool res;
+    assert(m_solver->oMayBeTrue(*m_state, totalCons, res));
+    if(!res) {
+        return 0;
+    }
+
+    return getValueRecursive(min, max);
+}
+
+/* Before calling this, must ensure that var.expr can be in [min, max] subject to state->constraints
+   and m_cons, and [min, max] contains valid value */
+uint32_t RestrictedVarEvaluator::getValueRecursive(uint32_t min, uint32_t max) {
+    if(min == max) {
+        return min;
+    }
+
+    uint32_t mid = min+(max-min)/2;
+
+    klee::Solver::Validity lowerContainValidValue = klee::Solver::Unknown;
+    klee::Solver::Validity lowerCanBePointed = klee::Solver::Unknown;
+    klee::Solver::Validity upperContainValidValue = klee::Solver::Unknown;
+    klee::Solver::Validity upperCanBePointed = klee::Solver::Unknown;
+
+    if(m_var.valueSet->isOverlap(min, mid)) {
+        lowerContainValidValue = klee::Solver::True;
+    }
+    else {
+        lowerContainValidValue = klee::Solver::False;
+
+        /* We have ensure that [min, max] must contains valid value, since
+           it is not in [min, mid], then it must in [mid+1, max] */
+        upperContainValidValue = klee::Solver::True;
+    }
+
+    if(upperContainValidValue == klee::Solver::Unknown) {
+        if(m_var.valueSet->isOverlap(mid+1, max)) {
+            upperContainValidValue = klee::Solver::True;
+        }
+        else {
+            upperContainValidValue = klee::Solver::False;
+        }
+    }
+
+    if(lowerContainValidValue == klee::Solver::True) {
+        klee::ref<klee::Expr> rangeBound = getBoundConstraint(m_var.expr, min, mid);
+        klee::ref<klee::Expr> totalCons = klee::AndExpr::create(m_cons, rangeBound);
+
+        bool res;
+        assert(m_solver->oMayBeTrue(*m_state, totalCons, res));
+        if(res) {
+            lowerCanBePointed = klee::Solver::True;
+        }
+        else {
+            lowerCanBePointed = klee::Solver::False;
+            upperCanBePointed = klee::Solver::True;
+        }
+
+        if(lowerCanBePointed == klee::Solver::True) {
+            uint32_t value = getValueRecursive(min, mid);
+            if(value != 0) {
+                return value;
+            }
+        }
+    }
+
+    if(upperContainValidValue == klee::Solver::True) {
+        if(upperCanBePointed == klee::Solver::Unknown) {
+            klee::ref<klee::Expr> rangeBound = getBoundConstraint(m_var.expr, mid+1, max);
+            klee::ref<klee::Expr> totalCons = klee::AndExpr::create(m_cons, rangeBound);
+
+            bool res;
+            assert(m_solver->oMayBeTrue(*m_state, totalCons, res));
+            if(res) {
+                upperCanBePointed = klee::Solver::True;
+            }
+        }
+
+        if(upperCanBePointed == klee::Solver::True) {
+            uint32_t value = getValueRecursive(mid+1, max);
+            if(value != 0) {
+                return value;
+            }
+        }
+    }
+
+    return 0;
+}
+
+
+bool RestrictedVarEvaluator::imply(
+        RestrictedVar precond,
+        RestrictedVar postcond) {
+    return false;
+}
+
+AsgnSpace::AsgnSpace(const AsgnSpace &rhs) {
+    copyContent(rhs);
+}
+
+AsgnSpace::~AsgnSpace() {
+    std::list<AsgnAxis*>::iterator axisIt;
+    for(axisIt=axisList.begin(); axisIt!=axisList.end(); axisIt++) {
+        AsgnAxis *axis = *axisIt;
+        delete axis;
+    }
+
+    std::list<AsgnSubspace*>::iterator subspaceIt;
+    for(subspaceIt=subspaceStack.begin(); subspaceIt!=subspaceStack.end(); subspaceIt++) {
+        AsgnSubspace *subspace = *subspaceIt;
+        delete subspace;
+    }
+}
+
+AsgnSpace& AsgnSpace::operator=(const AsgnSpace &rhs) {
+    copyContent(rhs);
+
+    return *this;
+}
+
+int AsgnSpace::AsgnAxis::getLevel() {
+    return startAddrStack.back().level;
+}
+
+void AsgnSpace::AsgnAxis::setLevel(int level) {
+    StartAddr &startAddr = startAddrStack.back();
+
+    if(startAddr.level != level) {
+        assert(startAddr.level < level);
+
+        startAddrStack.push_back(
+                StartAddr(level, startAddr.isSymbolic, startAddr.addr));
+    }
+}
+
+uint32_t AsgnSpace::AsgnAxis::getCurrAddr() {
+    uint32_t addr = startAddrStack.back().addr;
+    if(isSearchingSymbolic()) {
+        if(addr < deref->validSymbolicAddrSet->front()) {
+            addr = deref->validSymbolicAddrSet->front();
+        }
+    }
+    else {
+        if(addr < deref->validConcreteAddrSet->front()) {
+            addr = deref->validConcreteAddrSet->front();
+        }
+    }
+
+    return addr;
+}
+
+void AsgnSpace::AsgnAxis::setCurrAddr(uint32_t addr) {
+    assert(startAddrStack.back().addr <= addr);
+
+    startAddrStack.back().addr = addr;
+}
+
+uint32_t AsgnSpace::AsgnAxis::getMaxAddr() {
+    if(isSearchingSymbolic()) {
+        return deref->validSymbolicAddrSet->back();
+    }
+    else {
+        return deref->validConcreteAddrSet->back();
+    }
+}
+
+bool AsgnSpace::AsgnAxis::isOverlap(uint32_t min, uint32_t max) {
+    if(isSearchingSymbolic()) {
+        return deref->validSymbolicAddrSet->isOverlap(min, max);
+    }
+    else {
+        return deref->validConcreteAddrSet->isOverlap(min, max);
+    }
+}
+
+bool AsgnSpace::AsgnAxis::containValueInAddrRange(uint32_t min, uint32_t max, ValueSet *valueSet) {
+    if(isSearchingSymbolic()) {
+        return true;
+    }
+    else {
+        return deref->containValueInConcreteBlock(min, max, valueSet);
+    }
+}
+
+klee::ref<klee::Expr> AsgnSpace::AsgnAxis::getAddrExpr() {
+    return deref->addrExpr;
+}
+
+klee::ref<klee::Expr> AsgnSpace::AsgnAxis::getValueExpr() {
+    return deref->valueExpr;
+}
+
+klee::ref<klee::Expr> AsgnSpace::AsgnAxis::readMemory(uint32_t addr) {
+    return deref->readMemory(addr);
+}
+
+bool AsgnSpace::AsgnAxis::isSearchingSymbolic() {
+    return startAddrStack.back().isSymbolic;
+}
+
+void AsgnSpace::AsgnAxis::setSearchingSymbolicFinished() {
+    StartAddr &startAddr = startAddrStack.back();
+    if(startAddr.isSymbolic) {
+        startAddr.isSymbolic = false;
+        startAddr.addr = deref->validConcreteAddrSet->front();
+    }
+}
+
+void AsgnSpace::AsgnAxis::popStartAddr(int level) {
+    assert(getLevel() == level);
+    startAddrStack.pop_back();
+}
+
+void AsgnSpace::AsgnAxis::advanceStartAddr(int level) {
+    assert(getLevel() == level);
+
+    StartAddr &startAddr = startAddrStack.back();
+
+    /* To avoid overflow. Since 0xffffffff never becomes valid address, this
+       should not be a problem */
+    assert(startAddr.addr != 0xffffffff);
+
+    /* Add axis constraint to the superSpace, a better way is using iterator of 
+       ValidAddrSet */
+    startAddr.addr++;
+
+    if(isSearchingSymbolic()) {
+        if(startAddr.addr > deref->validSymbolicAddrSet->back()) {
+            setSearchingSymbolicFinished();
+        }
+    }
+}
+
+void AsgnSpace::addAxis(SymDeref *deref) {
+    AsgnAxis *axis = new AsgnAxis(deref);
+    axisList.push_back(axis);
+
+    if(!subspaceStack.empty()) {
+        AsgnSubspace *universe = subspaceStack.front();
+        universe->updatedAxises.push_back(axis);
+    }
+
+    isFinished = false;
+}
+
+AsgnSpace::AsgnAxis* AsgnSpace::currentAxis() {
+    if(isFinished) {
+        return NULL;
+    }
+
+    if(subspaceStack.empty()) {
+        if(axisList.empty()) {
+            return NULL;
+        }
+
+        /* Create the first subspace, we must select the target axis for the first
+           subspace, this is the place to implement the first selection heuristic 
+           in the pseudo code. We just select the first in axisList.*/
+        AsgnSubspace *universe = new AsgnSubspace(axisList.begin(),
+                klee::ConstantExpr::create(1, klee::Expr::Bool),
+                1);
+        subspaceStack.push_back(universe);
+
+        /* Add all axises to updatedAxises of the first subspace */
+        for(std::list<AsgnAxis*>::iterator it=axisList.begin();
+                it!=axisList.end();
+                it++) {
+            universe->updatedAxises.push_back(*it);
+        }
+    }
+
+    /* Return the fixed axis of the subspace on top of stack */
+    AsgnSubspace *currspace = subspaceStack.back();
+    std::list<AsgnAxis*>::iterator it = currspace->axisListIter;
+    AsgnAxis *axis = *it;
+
+    /* Before return, must add one "layer" of currspace */
+    if(axis->getLevel() != currspace->level) {
+        /* The startAddr.first is like a "Modification log", records at which level
+           the last modification has been done. */
+        axis->setLevel(currspace->level);
+        currspace->updatedAxises.push_back(axis);
+    }
+
+    return axis;
+}
+
+void AsgnSpace::setFeasible() {
+    AsgnSubspace *currspace = subspaceStack.back();
+    std::list<AsgnAxis*>::iterator it = currspace->axisListIter;
+    AsgnAxis *axis = *it;
+
+    it++;
+    if(it != axisList.end()) {
+        uint32_t addr = axis->getCurrAddr();
+
+        /* Build the constraint for next subspace */
+        klee::ref<klee::Expr> memoryContent = axis->readMemory(addr);
+
+        klee::ref<klee::Expr> addrCons = klee::EqExpr::create(
+                axis->getAddrExpr(), 
+                klee::ConstantExpr::create(addr, klee::Expr::Int32));
+        klee::ref<klee::Expr> valueCons = klee::EqExpr::create(axis->getValueExpr(), memoryContent);
+        klee::ref<klee::Expr> asgnCons = klee::AndExpr::create(addrCons, valueCons);
+
+        klee::ref<klee::Expr> totalCons = klee::AndExpr::create(asgnCons, currspace->constraint);
+
+        /* Select the target axis for next subspace, this is the place to implement
+           the first selection heuristic in the pseudo code. We just select next axis
+           in the list, so nothing should be done. */
+
+        /* Push next subspace */
+        subspaceStack.push_back(new AsgnSubspace(it, totalCons, currspace->level+1));
+    }
+    else {
+        isFinished = true;
+        hasAssignment = true;
+    }
+}
+
+void AsgnSpace::setInfeasible() {
+    AsgnSubspace *currspace = subspaceStack.back();
+    subspaceStack.pop_back();
+
+    /* Delete all axis constraints of this subspace */
+    for(std::list<AsgnAxis*>::iterator it=currspace->updatedAxises.begin(); 
+            it!=currspace->updatedAxises.end(); 
+            it++) {
+        AsgnAxis *axis = *it;
+        axis->popStartAddr(currspace->level);
+    }
+
+    /* Delete this subspace */
+    delete currspace;
+
+    if(!subspaceStack.empty()) {
+        AsgnSubspace *superspace = subspaceStack.back();
+        std::list<AsgnAxis*>::iterator it = superspace->axisListIter;
+        AsgnAxis *axis = *it;
+
+        axis->advanceStartAddr(superspace->level);
+       
+        /* Select next axis to evaluate, this is the place to implement the second selection
+           heuristic in the pseudo code. Currently, we just select the axis that reported as
+           infeasible. This axis will located at the next element in axisList. And it swap with
+           current axis */
+        std::list<AsgnAxis*>::iterator it2 = it;
+        it2++;
+        axisList.erase(it);
+        superspace->axisListIter = it2;
+        it2++;
+        axisList.insert(it2, axis);
+    }
+    else {
+        isFinished = true;
+        hasAssignment = false;
+    }
+}
+
+bool AsgnSpace::startFromLastFeasible() {
+    if(isFinished == true) {
+        if(hasAssignment == true) {
+            isFinished = false;
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+    else {
+        return true;
+    }
+}
+
+bool AsgnSpace::finished() {
+    return isFinished;
+}
+
+klee::ref<klee::Expr> AsgnSpace::currentConstraint() {
+    if(isFinished) {
+        assert(hasAssignment);
+
+        if(subspaceStack.empty()) {
+            return klee::ConstantExpr::create(1, klee::Expr::Bool);
+        }
+        else {
+            AsgnSubspace *lastSubspace = subspaceStack.back();
+            AsgnAxis *lastAxis = *(lastSubspace->axisListIter);
+
+            klee::ref<klee::Expr> lastSubspaceCons = lastSubspace->constraint;
+
+            klee::ref<klee::Expr> lastAxisAddrCons = klee::EqExpr::create(
+                    lastAxis->getAddrExpr(),
+                    klee::ConstantExpr::create(lastAxis->getCurrAddr(), klee::Expr::Int32));
+            klee::ref<klee::Expr> lastAxisValueCons = klee::EqExpr::create(
+                    lastAxis->getValueExpr(),
+                    lastAxis->readMemory(lastAxis->getCurrAddr()));
+            klee::ref<klee::Expr> lastAxisCons = klee::AndExpr::create(
+                    lastAxisAddrCons, lastAxisValueCons);
+
+            return klee::AndExpr::create(lastSubspaceCons, lastAxisCons);
+        }
+    }
+    else {
+        if(subspaceStack.empty()) {
+            return klee::ConstantExpr::create(1, klee::Expr::Bool);
+        }
+        else {
+            return subspaceStack.back()->constraint;
+        }
+    }
+}
+
+uint32_t AsgnSpace::numAxises() {
+    return axisList.size();
+}
+
+void AsgnSpace::dumpAllAxises() {
+    std::ofstream fs;
+    fs.open("/home/mhhuang/axises");
+
+    std::list<AsgnAxis*>::iterator it;
+    for(it=axisList.begin(); it!=axisList.end(); it++) {
+        AsgnAxis *axis = *it;
+        fs << "Axis L" << std::dec << axis->getLevel() << " " << axis->isSearchingSymbolic() << std::endl;
+        fs << std::hex;
+        fs << "Address : " << axis->getAddrExpr() << std::endl;
+        fs << "Value : " << axis->getValueExpr() << std::endl;
+        fs << "Asgn addr : " << axis->getCurrAddr() << std::endl;
+        klee::ref<klee::Expr> value = axis->readMemory(axis->getCurrAddr());
+        if(!value.isNull()) {
+            fs << "Asgn value : " << value << std::endl;
+        }
+        else {
+            fs << "Asgn value : invalid" << std::endl;
+        }
+
+        fs << std::endl;
+    }
+
+    fs.close();
+}
+
+void AsgnSpace::copyContent(const AsgnSpace &rhs) {
+    std::list<AsgnAxis*>::iterator naIt;
+    for(naIt=axisList.begin(); naIt!=axisList.end(); naIt++) {
+        AsgnAxis *axis = *naIt;
+        delete axis;
+    }
+    axisList.clear();
+
+    std::list<AsgnSubspace*>::iterator nsIt;
+    for(nsIt=subspaceStack.begin(); nsIt!=subspaceStack.end(); nsIt++) {
+        AsgnSubspace *subspace = *nsIt;
+        delete subspace;
+    }
+    subspaceStack.clear();
+
+    /* Copy axisList */
+    std::list<AsgnAxis*>::const_iterator oaIt;  // old axis iterator
+    for(oaIt=rhs.axisList.begin(); oaIt!=rhs.axisList.end(); oaIt++) {
+        AsgnAxis *oldAxis = *oaIt;
+        AsgnAxis *newAxis = new AsgnAxis(oldAxis);
+
+        axisList.push_back(newAxis);
+    }
+
+    /* Copy subspaceStack */
+    std::list<AsgnSubspace*>::const_iterator osIt;
+    for(osIt=rhs.subspaceStack.begin(), naIt=axisList.begin();
+            osIt!=rhs.subspaceStack.end();
+            osIt++, naIt++) {
+        AsgnSubspace *oldSpace = *osIt;
+        AsgnSubspace *newSpace = new AsgnSubspace(
+                naIt, oldSpace->constraint, oldSpace->level);
+
+        subspaceStack.push_back(newSpace);
+
+        /* In current usage of AsgnSpace, the fixed axis (axisListIter) of 
+           subspaces must follow the order of axisList, the following code 
+           is just for checking this consistency. */
+        assert((*(oldSpace->axisListIter))->deref == 
+               (*(newSpace->axisListIter))->deref);
+    }
+
+    /* Fill updatedAxises of each subspace */
+    for(naIt=axisList.begin(); naIt!=axisList.end(); naIt++) {
+        AsgnAxis *axis = *naIt;
+        std::list<AsgnAxis::StartAddr>::iterator pIt;
+        for(pIt=axis->startAddrStack.begin(); pIt!=axis->startAddrStack.end(); pIt++) {
+            int level = pIt->level;
+
+            /* There is a special case that subspaceStack is empty, and
+               all axises has only one level of startAddrStack */
+            if(!subspaceStack.empty()) {
+                nsIt = subspaceStack.begin();
+                for(int i=1; i<level; i++) {
+                    nsIt++;
+                    assert(nsIt != subspaceStack.end());
+                }
+                AsgnSubspace *subspace = *nsIt;
+
+                subspace->updatedAxises.push_back(axis);
+            }
+            else {
+                assert(level == 1);
+            }
+        }
+    }
+
+    isFinished = rhs.isFinished;
+    hasAssignment = rhs.hasAssignment;
+}
+
+uint32_t AsgnSpaceSearcher::AsgnAxisSearcher::fillAxisAndGetValue(AsgnSpace::AsgnAxis *a, RestrictedVar v, klee::ref<klee::Expr> c) {
+    evaluator = RestrictedVarEvaluator(state, solver);
+    axis = a;
+    var = v;
+    if(c.isNull()) {
+        cons = klee::ConstantExpr::create(1, klee::Expr::Bool);
+    }
+    else {
+        cons = c;
+    }
+
+    uint32_t res;
+    if(axis->isSearchingSymbolic()) {
+        res = fillAxisAndGetValueAux();
+        if(res != 0) {
+            return res;
+        }
+
+        /* -mhhuang-delete- */
+        std::cout << "[FillAxis] " << std::hex << 
+            std::setw(0) << std::setfill(' ') << axis->getValueExpr() << 
+            " L" << std::dec << axis->getLevel() <<
+            " : Symbolic search fail" << std::endl;
+
+        axis->setSearchingSymbolicFinished();
+    }
+
+    concreteSearchStartTime = clock();
+    res = fillAxisAndGetValueAux();
+    return res;
+}
+
+#define ADDR_NUM_LIMIT  6
+#define VALUE_NUM_LIMIT 6
+uint32_t AsgnSpaceSearcher::AsgnAxisSearcher::fillAxisAndGetValueAux() {
+    /* Because this function must find the feasible assignment with lowest address in [asgn->addr, 0xffffffff],
+       we first restrict the address >= asgn->addr */
+    klee::ref<klee::Expr> addrLowerBound = klee::UgeExpr::create(axis->getAddrExpr(), 
+            klee::ConstantExpr::create(axis->getCurrAddr(), klee::Expr::Int32));
+    klee::ref<klee::Expr> addrUpperBound = klee::UleExpr::create(axis->getAddrExpr(),
+            klee::ConstantExpr::create(axis->getMaxAddr(), klee::Expr::Int32));
+    klee::ref<klee::Expr> addrRangeBound = klee::AndExpr::create(addrUpperBound, addrLowerBound);
+
+    klee::ref<klee::Expr> totalCons = klee::AndExpr::create(cons, addrRangeBound);
+
+    /* If the restriction can't be satisfied, then no feasible assignment can be found */
+    uint32_t res = evaluator.getValue(var, totalCons);
+    if(res == 0) {
+        return 0;
+    }
+
+    ValueSet possibleAddr = evaluator.getValueSet(
+            axis->getAddrExpr(), 
+            totalCons, 
+            var,
+            ADDR_NUM_LIMIT);
+
+    /* Because we must find the smallest feasible address, we can use possibleAddr only if
+       we know no smaller feasible address exists */
+    if(possibleAddr.size() < ADDR_NUM_LIMIT) {
+        ValueSet::iterator it;
+        for(it=possibleAddr.begin(); it!=possibleAddr.end(); it++) {
+            uint32_t addr = *it;
+            if(axis->isOverlap(addr, addr)) {
+                res = fillAxisAndGetValueRecursive(addr, addr);
+                if(res != 0) {
+                    return res;
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    if(axis->isOverlap(axis->getCurrAddr(), axis->getMaxAddr()) == false) {
+        return 0;
+    }
+
+    ValueSet possibleValue = evaluator.getValueSet(
+            axis->getValueExpr(), 
+            totalCons, 
+            var, 
+            VALUE_NUM_LIMIT);
+    /* All possible values are in the set */
+    if(possibleValue.size() < VALUE_NUM_LIMIT) {
+        possibleValueSet = &possibleValue;
+    }
+    /* There may be more possible values */
+    else {
+        possibleValueSet = NULL;
+    }
+
+    /* We have checked that var have a valid address subject to cons and addrRangeBound, that
+       means addr can fall into [axis->getCurrAddr(), 0xffffffff].
+       And we have checked that [axis->getCurrAddr(), 0xffffffff] have valid address. 
+       So, the precondition of this call is ensured */
+    return fillAxisAndGetValueRecursive(axis->getCurrAddr(), axis->getMaxAddr());
+}
+
+#define VALUE_FILTERING_THRESHOLD   1024
+/* Before calling this, must ensure axis->deref->addrExpr can falling into [min, max] subject to
+   state->constraints, cons, and var can be valid value.
+   Also must ensure the range contains at least one valid address */
+uint32_t AsgnSpaceSearcher::AsgnAxisSearcher::fillAxisAndGetValueRecursive(uint32_t min, uint32_t max) {
+    if(!axis->isSearchingSymbolic()) {
+        clock_t passed = clock()-concreteSearchStartTime;
+        double seconds = ((double)passed)/CLOCKS_PER_SEC;
+        if(seconds > concreteSearchTimeout) {
+#if 0
+            state->constraints.saveAllConstraints(state->getID());
+
+            g_s2e->getWarningsStream(state) << "Address: " << std::endl <<
+                axis->getAddrExpr() << std::endl;
+
+            g_s2e->getWarningsStream(state) << "Value: " << std::endl << 
+                axis->getValueExpr() << std::endl;
+
+            g_s2e->getWarningsStream(state) << "Cons: " << std::endl <<
+                cons << std::endl;
+
+            g_s2e->getWarningsStream(state) << "Var.expr: " << std::endl <<
+                var.expr << std::endl;
+
+            g_s2e->getExecutor()->terminateStateEarly((ExecutionState&)*state, "Terminate due to unsolvability");
+#endif
+
+            g_s2e->getWarningsStream(state) << "[FillAxis] " << std::hex << 
+                std::setw(0) << std::setfill(' ') << axis->getValueExpr() << 
+                " L" << std::dec << axis->getLevel() <<
+                " : Timeout" << std::endl;
+
+            return 0;
+        }
+    }
+
+    if(min == max) {
+        uint32_t addr = min;
+
+        klee::ref<klee::Expr> memoryContent = axis->readMemory(addr);
+
+        klee::ref<klee::Expr> addrCons = klee::EqExpr::create(
+                axis->getAddrExpr(), 
+                klee::ConstantExpr::create(addr, klee::Expr::Int32));
+        klee::ref<klee::Expr> valueCons = klee::EqExpr::create(axis->getValueExpr(), memoryContent);
+        klee::ref<klee::Expr> asgnCons = klee::AndExpr::create(addrCons, valueCons);
+
+        klee::ref<klee::Expr> totalCons = klee::AndExpr::create(cons, asgnCons);
+
+        uint32_t res = evaluator.getValue(var, totalCons);
+        if(res != 0) {
+            axis->setCurrAddr(addr);
+
+            return res;
+        }
+
+        /* -mhhuang-delete- */
+        std::cout << "[FillAxis] " << std::hex << 
+            std::setw(0) << std::setfill(' ') << axis->getValueExpr() << 
+            " L" << std::dec << axis->getLevel() << std::hex <<
+            " : @" << std::setw(8) << std::setfill('0') << addr << " fail" << std::endl;
+
+        return 0;
+    }
+    else {
+        uint32_t mid = min+(max-min)/2;
+
+        klee::Solver::Validity lowerContainValidAddr = klee::Solver::Unknown;
+        klee::Solver::Validity lowerCanBePointed = klee::Solver::Unknown;
+        klee::Solver::Validity upperContainValidAddr = klee::Solver::Unknown;
+        klee::Solver::Validity upperCanBePointed = klee::Solver::Unknown;
+
+        if(axis->isOverlap(min, mid)) {
+            lowerContainValidAddr = klee::Solver::True;
+        }
+        else {
+            lowerContainValidAddr = klee::Solver::False;
+
+            /* We have ensure that [min, max] must contains valid address, since
+               it is not in [min, mid], then it must in [mid+1, max] */
+            upperContainValidAddr = klee::Solver::True;
+        }
+
+        if(upperContainValidAddr == klee::Solver::Unknown) {
+            if(axis->isOverlap(mid+1, max)) {
+                upperContainValidAddr = klee::Solver::True;
+            }
+            else {
+                upperContainValidAddr = klee::Solver::False;
+            }
+        }
+
+        if(lowerContainValidAddr == klee::Solver::True) {
+            /* -mhhuang-delete- */
+            clock_t startTime = clock();
+
+            /* If the address range > VALUE_FILTERING_THRESHOLD, always recursive look-in,
+               otherwise, check whether the range contains possible value first */
+            if(mid-min+1 > VALUE_FILTERING_THRESHOLD ||
+                    possibleValueSet == NULL ||
+                    axis->containValueInAddrRange(min, mid, possibleValueSet)) {
+                klee::ref<klee::Expr> addrInLowerHalf = klee::AndExpr::create(cons, 
+                        getBoundConstraint(axis->getAddrExpr(), min, mid));
+
+                uint32_t res = evaluator.getValue(var, addrInLowerHalf);
+                if(res != 0) {
+                    lowerCanBePointed = klee::Solver::True;
+                }
+                else {
+                    lowerCanBePointed = klee::Solver::False;
+                    upperCanBePointed = klee::Solver::True;
+                }
+
+                if(lowerCanBePointed == klee::Solver::True) {
+                    res = fillAxisAndGetValueRecursive(min, mid);
+                    if(res != 0)
+                        return res;
+                }
+            }
+            /* -mhhuang-delete- */
+            else {
+                clock_t passed = clock()-startTime;
+                double seconds = ((double)passed)/CLOCKS_PER_SEC;
+
+                std::cout << "[FillAxis] " << 
+                    std::setw(6) << std::setfill('0') << std::setprecision(2) << seconds << " " <<
+                    std::hex << 
+                    std::setw(0) << std::setfill(' ') << axis->getValueExpr() <<
+                    " L" << std::dec << axis->getLevel() << std::hex << 
+                    " : @0x" << std::setw(8) << std::setfill('0') << min << 
+                    " - 0x" << std::setw(8) << std::setfill('0') << mid <<
+                    " fail" << std::endl;
+            }
+        }
+
+        if(upperContainValidAddr == klee::Solver::True) {
+            /* -mhhuang-delete- */
+            clock_t startTime = clock();
+
+            if(max-mid > VALUE_FILTERING_THRESHOLD ||
+                    possibleValueSet == NULL ||
+                    axis->containValueInAddrRange(mid+1, max, possibleValueSet)) {
+                if(upperCanBePointed == klee::Solver::Unknown) {
+                    klee::ref<klee::Expr> addrInUpperHalf = klee::AndExpr::create(cons, 
+                            getBoundConstraint(axis->getAddrExpr(), mid+1, max));
+
+                    uint32_t res = evaluator.getValue(var, addrInUpperHalf);
+                    if(res != 0) {
+                        upperCanBePointed = klee::Solver::True;
+                    }
+                    else {
+                        upperCanBePointed = klee::Solver::False;
+                    }
+                }
+
+                if(upperCanBePointed == klee::Solver::True) {
+                    uint32_t res = fillAxisAndGetValueRecursive(mid+1, max);
+                    if(res != 0)
+                        return res;;
+                }
+            }
+            /* -mhhuang-delete- */
+            else {
+                clock_t passed = clock()-startTime;
+                double seconds = ((double)passed)/CLOCKS_PER_SEC;
+
+                std::cout << "[FillAxis] " << 
+                    std::setw(6) << std::setfill('0') << std::setprecision(2) << seconds << " " <<
+                    std::hex << 
+                    std::setw(0) << std::setfill(' ') << axis->getValueExpr() <<
+                    " L" << std::dec << axis->getLevel() << std::hex <<
+                    " : @0x" << std::setw(8) << std::setfill('0') << mid+1 << 
+                    " - 0x" << std::setw(8) << std::setfill('0') << max <<
+                    " fail" << std::endl;
+            }
+        }
+
+        return 0; 
+    }
+}
+
+uint32_t AsgnSpaceSearcher::fillSpaceAndGetValue(AsgnSpace *space, RestrictedVar var) {
+    if(!space->startFromLastFeasible()) {
+        return 0;
+    }
+
+    RestrictedVarEvaluator evaluator(state, solver);
+    uint32_t res = evaluator.getValue(var);
+    if(res == 0) {
+        return 0;
+    }
+
+    AsgnAxisSearcher axisSearcher(state, solver);
+    axisSearcher.setConcreteSearchTimeout(concreteSearchTimeout);
+
+    while(1) {
+        AsgnSpace::AsgnAxis *axis = space->currentAxis();
+        if(axis == NULL) {
+            break;
+        }
+
+        /* -mhhuang-delete- */
+        clock_t start = clock();
+
+        res = axisSearcher.fillAxisAndGetValue(axis, var, space->currentConstraint());
+
+        /* -mhhuang-delete- */
+        clock_t passed = clock()-start;
+        double seconds = ((double)passed)/CLOCKS_PER_SEC;
+
+        if(res != 0) {
+            /* -mhhuang-delete- */
+            std::cout << "[Axis] " << std::fixed <<
+                std::setw(6) << std::setfill('0') << std::setprecision(2) << seconds << " " <<
+                std::hex << 
+                std::setw(0) << std::setfill(' ') << axis->getValueExpr() << 
+                " L" << std::dec << axis->getLevel() << std::hex <<
+                " : @" << std::setw(8) << std::setfill('0') << axis->getCurrAddr() << " " <<  
+                std::setw(0) << std::setfill(' ') << axis->readMemory(axis->getCurrAddr()) << 
+                std::endl;
+
+            space->setFeasible();
+        }
+        else {
+            /* -mhhuang-delete- */
+            std::cout << "[Axis] " << std::fixed <<
+                std::setw(6) << std::setfill('0') << std::setprecision(2) << seconds << " " <<
+                std::hex << 
+                std::setw(0) << std::setfill(' ') << axis->getValueExpr() << 
+                " L" << std::dec << axis->getLevel() << std::hex << 
+                " : No feasible asgn, backtrack ..." << 
+                std::endl;
+
+            space->setInfeasible();
+        }
+    }
+
+    return res;
+}
+#endif  // __KS_MHHUANG_SYM_READ__
+
 S2EExecutionState::S2EExecutionState(klee::KFunction *kf) :
-        klee::ExecutionState(kf), m_stateID(s_lastStateID++),
+        klee::ExecutionState(kf),
+#ifdef __KS_MHHUANG_STATE_FORK__
+        m_parentState(NULL), m_childState(NULL), 
+        m_waitReturnValue(-1),
+#endif
+        m_stateID(s_lastStateID++),
         m_symbexEnabled(true), m_startSymbexAtPC((uint64_t) -1),
         m_active(true), m_runningConcrete(true),
         m_cpuRegistersState(NULL), m_cpuSystemState(NULL),
@@ -85,14 +1600,23 @@ S2EExecutionState::S2EExecutionState(klee::KFunction *kf) :
         m_dirtyMask(NULL), m_qemuIcount(0), m_lastS2ETb(NULL),
         m_lastMergeICount((uint64_t)-1),
         m_needFinalizeTBExec(false)
+#ifdef __KS_MHHUANG_SYM_READ__
+        , m_needUpdateAsgnSpace(false)
+#endif
 {
     m_deviceState = new S2EDeviceState();
     m_timersState = new TimersState;
+    m_isHack = false;
 }
 
 S2EExecutionState::~S2EExecutionState()
 {
-    assert(m_lastS2ETb == NULL);
+    if(m_isHack)
+        return;
+
+    if(m_lastS2ETb != NULL) {
+        assert(false);
+    }
 
     PluginStateMap::iterator it;
     g_s2e->getDebugStream() << "Deleting state " << std::dec <<
@@ -113,35 +1637,306 @@ S2EExecutionState::~S2EExecutionState()
     delete m_timersState;
 }
 
+#ifdef __KS_MHHUANG_SYM_READ__
+void S2EExecutionState::addSymDeref(SymDeref *deref) {
+    m_asgnSpace.addAxis(deref);
+    m_needUpdateAsgnSpace = true;
+}
+
+uint32_t S2EExecutionState::getValue(
+        klee::TimingSolver &solver, 
+        RestrictedVar var) {
+    /* This functionality for concolic mode is not implemented yet */
+    assert(!isConcolicMode);
+
+    constraints.startSymbolicEvaluate();
+
+    AsgnSpaceSearcher asgnSpaceSearcher(this, &solver);
+    asgnSpaceSearcher.setConcreteSearchTimeout(60);
+
+    AsgnSpace asgnSpace = m_asgnSpace;
+
+    uint32_t value = asgnSpaceSearcher.fillSpaceAndGetValue(
+            &asgnSpace, var);
+
+    constraints.endSymbolicEvaluate();
+
+    return value;
+}
+
+void S2EExecutionState::updateAsgnSpace(klee::TimingSolver &solver) const {
+    if(m_needUpdateAsgnSpace) {
+        std::cout << "[Update Asgn space] Current " << std::dec <<
+            m_asgnSpace.numAxises() << " axises" << std::endl;
+
+        constraints.startPermanentEvaluate();
+
+        AsgnSpaceSearcher asgnSpaceSearcher(this, &solver);
+
+        uint32_t res = asgnSpaceSearcher.fillSpaceAndGetValue(&m_asgnSpace, 
+                RestrictedVar(klee::ConstantExpr::create(1, klee::Expr::Bool)));
+        assert(res != 0);
+        m_needUpdateAsgnSpace = false;
+
+        constraints.endPermanentEvaluate();
+    }
+}
+#endif
+
+bool S2EExecutionState::evaluate(klee::TimingSolver &solver, klee::ref<klee::Expr> expr, 
+        klee::Solver::Validity &result) const {
+    /* -mhhuang-delete- */
+    if(!isa<klee::ConstantExpr>(expr)) {
+        int aa = 33;
+        int bb = aa;
+    }
+
+    bool res, success;
+
+    success = mayBeTrue(solver, expr, res);
+    if(!success) {
+        return false;
+    }
+    if(!res) {
+        /* No assignment satisfies expr, then expr must be false
+           This is based on that there must have an assignment that satisfies current path constraint */
+        result = Solver::False;
+        return true;
+    }
+
+    success = mayBeFalse(solver, expr, res);
+    if(!success) {
+        return false;
+    }
+    if(!res) {
+        result = Solver::True;
+        return true;
+    }
+
+    /* In concolic mode, it's impossible to return Solver::Unknown */
+    if(isConcolicMode)
+        assert(false);
+
+    result = Solver::Unknown;
+    return true;
+}
+
+bool S2EExecutionState::mustBeTrue(klee::TimingSolver &solver, klee::ref<klee::Expr> expr, 
+        bool &result) const {
+    /* If no assignment can satisfy (not expr) then expr must be true.
+       This is based on that there must have an assignment that satisfies current path constraint.
+       No assignment satisfy (not expr) && exist assignment satisfy path constraint =>
+         all possible assignments satisfy expr 
+       So we must ensure every dereference and every forked state are feasible! */
+    bool success = mayBeFalse(solver, expr, result);
+    result = !result;
+    return success;
+}
+
+bool S2EExecutionState::mustBeFalse(klee::TimingSolver &solver, 
+        klee::ref<klee::Expr> expr, 
+        bool &result) const {
+    bool success = mayBeTrue(solver, expr, result);
+    result = !result;
+    return success;
+}
+
+bool S2EExecutionState::mayBeTrue(klee::TimingSolver &solver, 
+        klee::ref<klee::Expr> expr, 
+        bool &result) const {
+    if(isConcolicMode || isa<klee::ConstantExpr>(expr)) {
+        constraints.startConcolicEvaluate();
+        bool success = solver.oMayBeTrue(*this, expr, result);
+        constraints.endConcolicEvaluate();
+
+        return success;
+    }
+    else {
+#ifdef __KS_MHHUANG_SYM_READ__
+        updateAsgnSpace(solver);
+#endif
+        bool success = false;
+        constraints.startSymbolicEvaluate();
+#ifdef __KS_MHHUANG_SYM_READ__
+        /* -mhhuang-delete- */
+        std::cout << "[MayBeTrue] " << std::setfill(' ') << expr << std::endl;
+
+        AsgnSpaceSearcher asgnSpaceSearcher(this, &solver);
+        asgnSpaceSearcher.setConcreteSearchTimeout(60);
+
+        /* Must implement the assignment operator */
+        AsgnSpace asgnSpace = m_asgnSpace;
+
+        uint32_t res = asgnSpaceSearcher.fillSpaceAndGetValue(&asgnSpace, RestrictedVar(expr));
+        if(res != 0) {
+            result = true;
+
+            /* -mhhuang-delete- */
+            std::cout << "[MayBeTrue] Result is true" << std::endl;
+        }
+        else {
+            result = false;
+
+             /* -mhhuang-delete- */
+            std::cout << "[MayBeTrue] Result is false" << std::endl;
+        }
+
+        success = true;
+#else
+        success = solver.oMayBeTrue(*this, expr, result);
+#endif
+        constraints.endSymbolicEvaluate();
+
+        return success;
+    }
+}
+
+bool S2EExecutionState::mayBeFalse(klee::TimingSolver &solver, klee::ref<klee::Expr> expr, 
+        bool &result) const {
+    return mayBeTrue(solver, klee::Expr::createIsZero(expr), result);
+}
+
+bool S2EExecutionState::getValue(klee::TimingSolver &solver, klee::ref<klee::Expr> expr,
+        klee::ref<klee::ConstantExpr> &result) const {
+    if(isConcolicMode || isa<klee::ConstantExpr>(expr)) {
+        constraints.startConcolicEvaluate();
+        bool success = solver.oGetValue(*this, expr, result);
+        constraints.endConcolicEvaluate();
+
+        return success;
+    }
+    else {
+#ifdef __KS_MHHUANG_SYM_READ__
+        updateAsgnSpace(solver);
+#endif
+        bool success = false;
+        constraints.startSymbolicEvaluate();
+#ifdef __KS_MHHUANG_SYM_READ__
+        /* -mhhuang-delete- */
+        std::cout << "[GetValue] " << std::setfill(' ') << expr << std::endl;
+
+        AsgnSpaceSearcher asgnSpaceSearcher(this, &solver);
+
+        /* Must implement the assignment operator 
+           Can not just use m_asgnSpace because there may be temp constraints */
+        AsgnSpace asgnSpace = m_asgnSpace;
+
+        uint32_t res = asgnSpaceSearcher.fillSpaceAndGetValue(&asgnSpace, 
+                RestrictedVar(klee::ConstantExpr::create(1, klee::Expr::Bool)));
+        assert(res != 0);
+
+        std::vector<klee::ref<klee::Expr> > tempConstraints = getTempConstraints();
+        addTempConstraint(asgnSpace.currentConstraint());
+        success = solver.oGetValue(*this, expr, result);
+        setTempConstraints(tempConstraints);
+#else
+        success = solver.oGetValue(*this, expr, result);
+#endif
+        constraints.endSymbolicEvaluate();
+
+        return success;
+    }
+}
+
+bool S2EExecutionState::getInitialValues(TimingSolver &solver, 
+        const std::vector<const Array*> &objects, 
+        std::vector< std::vector<unsigned char> > &result) const {
+    if(isConcolicMode) {
+        constraints.startConcolicEvaluate();
+        bool success = solver.oGetInitialValues(*this, objects, result);
+        constraints.endConcolicEvaluate();
+
+        return success;
+    }
+    else {
+#ifdef __KS_MHHUANG_SYM_READ__
+        updateAsgnSpace(solver);
+#endif
+        bool success = false;
+        constraints.startSymbolicEvaluate();
+#ifdef __KS_MHHUANG_SYM_READ__
+        std::cout << "[GetInitValue]" << std::endl;
+
+        AsgnSpaceSearcher asgnSpaceSearcher(this, &solver);
+
+        /* Must implement the assignment operator */
+        AsgnSpace asgnSpace = m_asgnSpace;
+
+        uint32_t res = asgnSpaceSearcher.fillSpaceAndGetValue(&asgnSpace, 
+                RestrictedVar(klee::ConstantExpr::create(1, klee::Expr::Bool)));
+        assert(res != 0);
+
+        std::vector<klee::ref<klee::Expr> > tempConstraints = getTempConstraints();
+        addTempConstraint(asgnSpace.currentConstraint());
+        success = solver.oGetInitialValues(*this, objects, result);
+        setTempConstraints(tempConstraints);
+#else
+        success = solver.oGetInitialValues(*this, objects, result);
+#endif
+        constraints.endSymbolicEvaluate();
+
+        return success;
+    }
+}
+
+/* An ugly hack to let Executor::getSymbolicSolution works */
+ExecutionState* S2EExecutionState::getClone() const { 
+    S2EExecutionState *s = new S2EExecutionState(*this); 
+    s->m_isHack = true;
+    return s;
+}
+
+void S2EExecutionState::addConstraint(klee::ref<klee::Expr> e) const {
+#ifdef __MHHUANG_DISCARD_KERNEL__
+    if(getPc() >= KERNEL_SPACE) {
+        return;
+    }
+#endif
+
+    if(!isa<klee::ConstantExpr>(e)) {
+        addPermanentConstraintAndClearTempConstraints(e);
+    }
+}
+
+void S2EExecutionState::addTempConstraint(klee::ref<klee::Expr> e) const {
+    constraints.addTempConstraint(e);
+}
+
+void S2EExecutionState::clearTempConstraints() const {
+    constraints.clearTempConstraints();
+}
+
+std::vector<klee::ref<klee::Expr> > S2EExecutionState::getTempConstraints() const {
+    return constraints.getTempConstraints();
+}
+
+void S2EExecutionState::setTempConstraints(std::vector<klee::ref<klee::Expr> > tempCons) const {
+    constraints.setTempConstraints(tempCons);
+}
+
+void S2EExecutionState::addPermanentConstraintAndClearTempConstraints(klee::ref<klee::Expr> e) const {
+#ifdef __KS_MHHUANG_SYM_READ__
+    /* We only step fowrard our starting point when the constraint is permanent, because
+       the step can not be inverted, can not apply to temp constraint which may be removed 
+       later */
+    m_needUpdateAsgnSpace = true;
+#endif
+    constraints.addPermanentConstraintAndClearTempConstraints(e);
+}
+
 void S2EExecutionState::enableSymbolicExecution()
 {
     if (m_symbexEnabled) {
         return;
     }
-   /* 
-    for(std::vector<std::pair<uint64_t, klee::ref<klee::Expr> > >::iterator it = concrete_byte.begin() ; it != concrete_byte.end() ; it++)
-    {
-        //g_s2e->getMessagesStream(this) << "address: " << it->first << " value: " << it->second << std::endl; 
-    
-        ObjectPair op = addressSpace.findObject(it->first & S2E_RAM_OBJECT_MASK);
-        ObjectState *wos = NULL;
-        wos = addressSpace.getWriteable(op.first, op.second);
-        wos->write8(it->first & ~S2E_RAM_OBJECT_MASK, it->second);
-
-    }
-    concrete_byte.clear();
-*/
-   //dumpStack(4, getBp()+4);
 
     for(std::vector<uint64_t>::iterator it = concrete_byte.begin() ; it != concrete_byte.end() ; it++)
     {
-      //g_s2e->getMessagesStream(this) << "address : " << std::hex << *it << std::endl;
       ObjectPair op = addressSpace.findObject(*it & S2E_RAM_OBJECT_MASK);
       unsigned int offset = (*it & ~S2E_RAM_OBJECT_MASK);                       
       klee::ObjectState *wos = addressSpace.getWriteable(op.first, op.second);   
       wos->markByteSymbolic(offset);                                                    
       wos->markByteUnflushed(offset);                                                   
-    //g_s2e->getMessagesStream(this) << "address : " << *it  << " isByte : " << op.second->isByteKnownSymbolic(offset)<< " value : " << readMemory8(*it) << std::endl;
     }
     concrete_byte.clear();
 
@@ -289,8 +2084,6 @@ ref<Expr> S2EExecutionState::getEax()
 ref<Expr> S2EExecutionState::readCpuRegister(unsigned offset,
                                              Expr::Width width) const
 {
-//offset = offsetof(CPUState, regs[R_EBX]);
-//width = klee::Expr::Int32;
     assert((width == 1 || (width&7) == 0) && width <= 64);
     assert(offset + Expr::getMinBytesForWidth(width) <= CPU_OFFSET(eip));
 
@@ -1111,9 +2904,9 @@ bool S2EExecutionState::merge(const ExecutionState &_b)
     constraints = ConstraintManager();
     for(std::set< ref<Expr> >::iterator it = commonConstraints.begin(),
                 ie = commonConstraints.end(); it != ie; ++it)
-        constraints.addConstraint(*it);
+        addConstraint(*it);
 
-    constraints.addConstraint(OrExpr::create(inA, inB));
+    addConstraint(OrExpr::create(inA, inB));
 
     // Merge dirty mask by clearing bits that differ. Clearning bits in
     // dirty mask can only affect performance but not correcntess.
@@ -1152,6 +2945,62 @@ CPUState *S2EExecutionState::getConcreteCpuState() const
 {
     return (CPUState*) (m_cpuSystemState->address - CPU_OFFSET(eip));
 }
+
+#ifdef __MHHUANG_MEASURE_TIME__
+void S2EExecutionState::printAllStat() {
+    std::map<uint32_t, klee::ProcStat*>::iterator pIt = allProcStat.begin();
+    for(;pIt != allProcStat.end(); pIt++) {
+        g_s2e->getWarningsStream(this) << "Process " << std::hex << pIt->first << " :" << std::endl;
+        g_s2e->getWarningsStream(this) << "NumBr: " << pIt->second->numBr << 
+                                          ", KnownGuestBr: " << pIt->second->numKnownGuestBr << 
+                                          ", UnknownGuestBr: " << pIt->second->numUnknownGuestBr << 
+                                          ", KnownHelperBr: " << pIt->second->numKnownHelperBr << 
+                                          ", UnknownHelperBr: " << pIt->second->numUnknownHelperBr << 
+                                          std::endl;
+        g_s2e->getWarningsStream(this) << "NumEvaluate: " << pIt->second->numEvaluate << 
+                                          ", tEvaluate: " << ((float)(pIt->second->tEvaluate))/CLOCKS_PER_SEC << 
+                                          std::endl;
+        g_s2e->getWarningsStream(this) << "NumAddCon: " << pIt->second->numAddCon << 
+                                          ", tAddCon: " << ((float)(pIt->second->tAddCon))/CLOCKS_PER_SEC << 
+                                          std::endl;
+        g_s2e->getWarningsStream(this) << "NumMustBeTrue: " << pIt->second->numMustBeTrue << 
+                                          ", tMustBeTrue: " << ((float)(pIt->second->tMustBeTrue))/CLOCKS_PER_SEC << 
+                                          std::endl;
+        g_s2e->getWarningsStream(this) << "NumGetValue: " << pIt->second->numGetValue << 
+                                          ", tGetValue: " << ((float)(pIt->second->tGetValue))/CLOCKS_PER_SEC << 
+                                          std::endl;
+        g_s2e->getWarningsStream(this) << "tKlee: " <<  ((float)(pIt->second->tKlee))/CLOCKS_PER_SEC << 
+                                          ", tComputeCC: " <<  ((float)(pIt->second->tComputeCC))/CLOCKS_PER_SEC << 
+                                          ", tHelper: " << ((float)(pIt->second->tHelper))/CLOCKS_PER_SEC << 
+                                          ", tCallExternal: " << ((float)(pIt->second->tCallExternal))/CLOCKS_PER_SEC << 
+                                          std::endl;
+        g_s2e->getWarningsStream(this) << "Sym-exec icount: " << pIt->second->symICount << 
+                                          ", con-exec icount: " << pIt->second->conICount << std::endl;
+        
+        std::map<uint32_t, uint32_t>::iterator bIt = pIt->second->allKnownBranchStat.begin();
+        for(; bIt != pIt->second->allKnownBranchStat.end(); bIt++) {
+            g_s2e->getWarningsStream(this) << "KnownBranch at " << std::hex << bIt->first << " takes " << std::dec << bIt->second << " times" << std::endl;
+        }
+
+        bIt = pIt->second->allUnknownBranchStat.begin();
+        for(; bIt != pIt->second->allUnknownBranchStat.end(); bIt++) {
+            g_s2e->getWarningsStream(this) << "UnknownBranch at " << std::hex << bIt->first << " takes " << std::dec << bIt->second << " times" << std::endl;
+        }
+
+        std::map<std::string, klee::HelperStat*>::iterator hIt = pIt->second->allHelperStat.begin();
+        for(; hIt != pIt->second->allHelperStat.end(); hIt++) {
+            g_s2e->getWarningsStream(this) << "Helper " << hIt->first << 
+                                              ":\ttExec: " <<  ((float)(hIt->second->tExec))/CLOCKS_PER_SEC << 
+                                              ":\ttComputeCC: " <<  ((float)(hIt->second->tComputeCC))/CLOCKS_PER_SEC << 
+                                              ",\tKnown: " <<  hIt->second->numKnownBr << 
+                                              ",\tUnknown: " << hIt->second->numUnknownBr << 
+                                              std::endl;
+        }
+    }
+
+    g_s2e->getWarningsStream(this) << "Number of constraints: " << constraints.constraints.size() << std::endl;
+}
+#endif
 
 } // namespace s2e
 

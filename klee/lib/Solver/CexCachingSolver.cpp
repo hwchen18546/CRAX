@@ -49,7 +49,6 @@ struct AssignmentLessThan {
   }
 };
 
-
 class CexCachingSolver : public SolverImpl {
   typedef std::set<Assignment*, AssignmentLessThan> assignmentsTable_ty;
 
@@ -201,11 +200,25 @@ bool CexCachingSolver::getAssignment(const Query& query, Assignment *&result) {
   std::vector<const Array*> objects;
   findSymbolicObjects(key.begin(), key.end(), objects);
 
+  /* -mhhuang-delete- */
+  //clock_t start = clock();
+
   std::vector< std::vector<unsigned char> > values;
   bool hasSolution;
   if (!solver->impl->computeInitialValues(query, objects, values, 
-                                          hasSolution))
+                                          hasSolution)) {
+    /* -mhhuang-delete */
+    //if(solver->getSolverTime) {
+    //    solver->solverTime += (clock()-start);
+    //}
+
     return false;
+  }
+
+  /* -mhhuang-delete */
+  //if(solver->getSolverTime) {
+  //    solver->solverTime += (clock()-start);
+  //}
     
   Assignment *binding;
   if (hasSolution) {
@@ -300,9 +313,12 @@ bool CexCachingSolver::computeValue(const Query& query,
   Assignment *a;
   if (!getAssignment(query.withFalse(), a))
     return false;
-  assert(a && "computeValue() must have assignment");
+  if(!a) {
+    assert(false && "computeValue() must have assignment");
+  }
 
   result = a->evaluate(query.expr);
+
   assert(isa<ConstantExpr>(result) && 
          "assignment evaluation did not result in constant");
   return true;

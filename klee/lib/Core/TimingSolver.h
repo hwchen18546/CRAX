@@ -62,6 +62,23 @@ namespace klee {
                           const std::vector<const Array*> &objects,
                           std::vector< std::vector<unsigned char> > &result);
 
+    bool oEvaluate(const ExecutionState&, ref<Expr>, Solver::Validity &result);
+
+    bool oMustBeTrue(const ExecutionState&, ref<Expr>, bool &result);
+
+    bool oMustBeFalse(const ExecutionState&, ref<Expr>, bool &result);
+
+    bool oMayBeTrue(const ExecutionState&, ref<Expr>, bool &result);
+
+    bool oMayBeFalse(const ExecutionState&, ref<Expr>, bool &result);
+
+    bool oGetValue(const ExecutionState &, ref<Expr> expr, 
+                  ref<ConstantExpr> &result);
+
+    bool oGetInitialValues(const ExecutionState&, 
+                          const std::vector<const Array*> &objects,
+                          std::vector< std::vector<unsigned char> > &result);
+
     std::pair< ref<Expr>, ref<Expr> >
     getRange(const ExecutionState&, ref<Expr> query);
   };

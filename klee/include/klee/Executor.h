@@ -378,6 +378,11 @@ public:
            llvm::ExecutionEngine *engine = NULL);
   virtual ~Executor();
 
+#ifdef __MHHUANG_MEASURE_TIME__
+  uint32_t getConstraintSize(ExecutionState& state);
+  uint32_t getExprSize(ref<Expr> e);
+#endif
+
   const InterpreterHandler& getHandler() {
     return *interpreterHandler;
   }
@@ -387,6 +392,10 @@ public:
   // current state, and one of the states may be null.
   virtual StatePair fork(ExecutionState &current,
                          ref<Expr> condition, bool isInternal);
+
+#ifdef __KS_MHHUANG_STATE_FORK__
+  StatePair dummyFork(ExecutionState *state, bool needExecute = true);
+#endif
 
   virtual bool merge(ExecutionState &base, ExecutionState &other);
 
@@ -504,7 +513,12 @@ public:
     return states;
   }
 
+#if 0
+  /* -mhhuang- Don't use this */
   Solver *getSolver() const;
+#endif
+
+  TimingSolver *getTimingSolver() const;
 
   bool getConcolicMode();
 };

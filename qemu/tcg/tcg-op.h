@@ -318,7 +318,7 @@ static inline void tcg_gen_br(int label)
 
 static inline void tcg_gen_mov_i32(TCGv_i32 ret, TCGv_i32 arg)
 {
-    if (!TCGV_EQUAL_I32(ret, arg))
+    if (!TCGV_EQUAL_I32(ret, arg)) 
         tcg_gen_op2_i32(INDEX_op_mov_i32, ret, arg);
 }
 

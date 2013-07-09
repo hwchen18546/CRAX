@@ -195,7 +195,22 @@ public:
     /** Signal emitted when QEMU is ready to activate registered devices */
     sigc::signal<void, struct PCIBus*> onDeviceActivation;
 
-    sigc::signal<void, S2EExecutionState * , klee::ref<klee::Expr> , klee::ref<klee::Expr> , bool> onCorruptEip;
+    /* state, value, hostAddr */
+    sigc::signal<void, S2EExecutionState*, klee::ref<klee::Expr>, klee::ref<klee::Expr> > onCorruptReg;
+
+    /* state, addrExpr, valueExpr */
+    sigc::signal<void, S2EExecutionState*, klee::ref<klee::Expr>, klee::ref<klee::Expr> > onCorruptPtr;
+
+    /* state, fmt, dollarOffset, wordOffset */
+    sigc::signal<void, S2EExecutionState*, uint32_t, uint32_t, uint32_t> onCorruptFmt;
+
+    /* state, addr, size */
+    sigc::signal<void, S2EExecutionState*, uint32_t, uint32_t> onSetInputRange;
+
+    /* state, addr, name */
+    sigc::signal<void, S2EExecutionState*, uint32_t, const char*> onSetSymbolicAddr;
+
+    sigc::signal<void, S2EExecutionState*> onDumpSymbolicBlocks;
 };
 
 } // namespace s2e

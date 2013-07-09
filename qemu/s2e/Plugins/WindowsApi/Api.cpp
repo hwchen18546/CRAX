@@ -179,7 +179,7 @@ bool WindowsApi::NtSuccess(S2E *s2e, S2EExecutionState *s, klee::ref<klee::Expr>
     bool isTrue;
     klee::ref<klee::Expr> eq = klee::SgeExpr::create(expr, klee::ConstantExpr::create(0, expr.get()->getWidth()));
 
-    if (s2e->getExecutor()->getSolver()->mayBeTrue(klee::Query(s->constraints, eq), isTrue)) {
+    if (s2e->getExecutor()->getTimingSolver()->mayBeTrue(*s, eq, isTrue)) {
         return isTrue;
     }
     return false;
@@ -190,7 +190,7 @@ bool WindowsApi::NtFailure(S2E *s2e, S2EExecutionState *s, klee::ref<klee::Expr>
     bool isTrue;
     klee::ref<klee::Expr> eq = klee::SgeExpr::create(expr, klee::ConstantExpr::create(0, expr.get()->getWidth()));
 
-    if (s2e->getExecutor()->getSolver()->mustBeFalse(klee::Query(s->constraints, eq), isTrue)) {
+    if (s2e->getExecutor()->getTimingSolver()->mustBeFalse(*s, eq, isTrue)) {
         return isTrue;
     }
     return false;

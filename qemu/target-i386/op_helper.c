@@ -119,6 +119,10 @@ void trace_port(char *buf, const char *prefix, uint32_t port, uint32_t pc)
 
 #endif
 
+#ifdef __MHHUANG_SEND_PID__
+uint64_t AppPID = -1;
+#endif
+
 #ifndef S2E_LLVM_LIB
 #ifdef CONFIG_S2E
 struct CPUX86State* env = 0;
@@ -5182,7 +5186,7 @@ void tlb_fill(target_ulong addr, target_ulong page_addr,
         if (retaddr) {
             /* now we have a real cpu fault */
             pc = (uintptr_t)retaddr;
-            tb = tb_find_pc(pc);
+            tb = tb_find_pc(pc);    /* -mhhuang- Find the tb that retaddr(the return address, from mmu function to translated host binary) belong to */
             if (tb) {
                 /* the PC is inside the translated code. It means that we have
                    a virtual CPU fault */
@@ -6034,3 +6038,352 @@ void s2e_ensure_symbolic(struct S2E* s2e, struct S2EExecutionState *state)
 {
 }
 #endif
+
+#if defined(__MHHUANG_GDB__) || defined(__MHHUANG_PRINT_EXECUTION__)
+target_ulong eax(CPUX86State *env) {
+    return env->regs[R_EAX];
+}
+
+target_ulong ebx(CPUX86State *env) {
+    return env->regs[R_EBX];
+}
+
+target_ulong ecx(CPUX86State *env) {
+    return env->regs[R_ECX];
+}
+
+target_ulong edx(CPUX86State *env) {
+    return env->regs[R_EDX];
+}
+
+target_ulong esp(CPUX86State *env) {
+    return env->regs[R_ESP];
+}
+
+target_ulong ebp(CPUX86State *env) {
+    return env->regs[R_EBP];
+}
+
+target_ulong esi(CPUX86State *env) {
+    return env->regs[R_ESI];
+}
+
+target_ulong edi(CPUX86State *env) {
+    return env->regs[R_EDI];
+}
+#endif
+
+#if defined(__MHHUANG_TRACE_POINT__) || defined(__MHHUANG_GDB__)
+#include <unistd.h>
+
+char StringBuf[1000];
+
+int hexToString(char *buf, uint64_t value, int width) {
+    buf[0] = '0';
+    buf[1] = 'x';
+    buf = buf+2;
+
+    width = width/4;
+
+    int i;
+    for(i=0; i<width; i++) {
+        uint8_t d = (value & 0xf);
+        value = (value >> 4);
+        if(d >= 0xa) {
+            d = d-0xa;
+            buf[width-i-1] = d+'a';
+        }
+        else {
+            buf[width-i-1] = d+'0';
+        }
+    }
+
+    return width+2;
+}
+
+void printHex(uint64_t value, int width) {
+    int length = hexToString(StringBuf, value, width);
+    StringBuf[length] = ',';
+    StringBuf[length+1] = ' ';
+    write(1, StringBuf, length+2);
+}
+
+int strclone(char* dst, const char* src) {
+    int i=0;
+    while(src[i]) {
+        dst[i] = src[i];
+        i++;
+    }
+    dst[i] = 0;
+
+    return i;
+}
+#endif
+
+#ifdef __MHHUANG_GDB__
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+
+uint8_t GDBuf[200];
+
+void loadGuestCode(TranslationBlock *tb) {
+    target_ulong addr = tb->pc;
+    int size = tb->size;
+
+    int i;
+    for(i=0; i<size; i++) {
+        GDBuf[i] = ldub_code(addr);
+        addr++;
+    }
+}
+
+target_phys_addr_t physAddr(CPUX86State *env, target_ulong virtualAddress) {
+    target_phys_addr_t physicalAddress = cpu_get_phys_page_debug(env, virtualAddress & TARGET_PAGE_MASK);
+    if(physicalAddress == (target_phys_addr_t) -1) {
+        write(1, "Page fault!\n", 12);
+        return (target_phys_addr_t)-1;
+    }
+
+    physicalAddress = (physicalAddress | (virtualAddress & (~TARGET_PAGE_MASK)));
+    return physicalAddress;
+}
+
+uint64_t hostAddr(CPUX86State *env, target_ulong virtualAddress) {
+    target_phys_addr_t physicalAddress = physAddr(env, virtualAddress);
+    if(physicalAddress == (target_phys_addr_t)-1) {
+        return (uint64_t)-1;
+    }
+
+    uint64_t hostAddress = (uint64_t) qemu_get_phys_ram_ptr(physicalAddress & TARGET_PAGE_MASK);
+    if(!hostAddress) {
+        write(1, "qemu_get_phys_ram_ptr error\n", 28);
+        return (uint64_t)-1;
+    }
+
+    hostAddress = (hostAddress | (virtualAddress & (~TARGET_PAGE_MASK)));
+    return hostAddress;
+}
+
+uint8_t mldb(CPUX86State *env, target_ulong virtualAddress) {
+    uint64_t hostAddress = hostAddr(env, virtualAddress);
+    if(hostAddress != (uint64_t)-1) {
+        uint8_t *ptr = (uint8_t*)hostAddress;
+        return *ptr;
+    }
+    else {
+        return 0;
+    }
+}
+
+uint32_t mldl(CPUX86State *env, target_ulong virtualAddress) {
+    uint32_t res = 0;
+
+    uint8_t *p = (uint8_t*)&res;
+    int i;
+    for(i=0; i<4; i++) {
+        *p = mldb(env, virtualAddress+i);
+        p++;
+    }
+
+    return res;
+}
+
+void mstb(CPUX86State *env, target_ulong virtualAddress, uint8_t value) {
+    uint64_t hostAddress = hostAddr(env, virtualAddress);
+    if(hostAddress != (uint64_t)-1) {
+        uint8_t *ptr = (uint8_t*)hostAddress;
+        *ptr = value;
+    }
+}
+
+void mstl(CPUX86State *env, target_ulong virtualAddress, uint32_t value) {
+    int i;
+    for(i=0; i<4; i++) {
+        uint8_t v = (value & 0xff);
+        value = (value >> 8);
+        mstb(env, virtualAddress+i, v);
+    }
+}
+
+void bt(CPUX86State *env, int level) {
+    printHex(env->s2e_current_tb->pc, 32);
+    
+    int i;
+    target_ulong bp = ebp(env);
+    for(i=1; i<level; i++) {
+        printHex(mldl(env, bp+4), 32);
+        bp = mldl(env, bp);
+    }
+    write(1, "\n", 1);
+}
+
+target_ulong BTBuf[5] = {0x08055442, 0x0804c9da, 0x08049af1, 0xb74e7455, 0x08049961};
+target_ulong PtrPrintBT = 0xbfd6bee7;
+target_ulong PtrBTBuf   = 0xbfd6bce0;
+target_ulong PtrBTSize  = 0xbfd6bee0;
+
+void saveBT(CPUX86State *env) {
+    mstb(env, PtrPrintBT, 1);
+
+    uint32_t i;
+    for(i=0; i<5; i++) {
+        mstl(env, PtrBTBuf+(i*4), BTBuf[i]);
+    }
+
+    mstl(env, PtrBTSize, i);
+}
+
+target_ulong exploitAddr = 0xbfffe755;
+/* Directly modify the memory content in QEMU */
+void enterExploit(CPUX86State *env) {
+    int fd = open("/home/mhhuang/Exploit", O_RDONLY);
+    if(fd != -1) {
+        target_ulong byteWrite = 0;
+        uint8_t byte;
+        while(read(fd, &byte, 1) == 1) {
+            mstb(env, exploitAddr+byteWrite, byte);
+            byteWrite++;
+        }
+        close(fd);
+    }
+    else {
+        write(1, "Can't open exploit file\n", 24);
+    }
+}
+
+/* Check whether the memory content is the same as the exploit */
+void verifyExploit(CPUX86State *env) {
+    int fd = open("/home/mhhuang/Exploit", O_RDONLY);
+    if(fd != -1) {
+        target_ulong index = 0;
+        uint8_t byteInFile;
+        while(read(fd, &byteInFile, 1) == 1) {
+            uint8_t byteInMemory = mldb(env, exploitAddr+index);
+            if(byteInFile != byteInMemory || byteInMemory == 0) {
+                char *buf = StringBuf;
+                buf += strclone(buf, "Index: ");
+                buf += hexToString(buf, index, 32);
+                buf += strclone(buf, ", ByteInMemory: ");
+                buf += hexToString(buf, byteInMemory, 8);
+                buf += strclone(buf, ", ByteInFile: ");
+                buf += hexToString(buf, byteInFile, 8);
+                buf[0] = '\n';
+                buf++;
+
+                write(1, StringBuf, (uint64_t)buf-(uint64_t)StringBuf);
+                return;
+            }
+            index++;
+        }
+
+        write(1, "Exploit file and memory contents are the same\n", 46);
+    }
+    else {
+        write(1, "Can't open exploit file\n", 24);
+    }
+}
+#endif
+
+
+#ifdef __MHHUANG_PRINT_EXECUTION__
+void printReg(CPUX86State *env, TranslationBlock *tb) {
+    char *buf = StringBuf;
+    buf += strclone(buf, "EIP: ");
+    buf += hexToString(buf, tb->pc, 32);
+#if 0
+    buf += strclone(buf, ", EAX: ");
+    buf += hexToString(buf, eax(env), 32);
+    buf += strclone(buf, ", EBX: ");
+    buf += hexToString(buf, ebx(env), 32);
+    buf += strclone(buf, ", ECX: ");
+    buf += hexToString(buf, ecx(env), 32);
+    buf += strclone(buf, ", EDX: ");
+    buf += hexToString(buf, edx(env), 32);
+    buf += strclone(buf, ", ESP: ");
+    buf += hexToString(buf, esp(env), 32);
+    buf += strclone(buf, ", EBP: ");
+    buf += hexToString(buf, ebp(env), 32);
+    buf += strclone(buf, ", ESI: ");
+    buf += hexToString(buf, esi(env), 32);
+    buf += strclone(buf, ", EDI: ");
+    buf += hexToString(buf, edi(env), 32);
+#endif
+    buf[0] = '\n';
+    buf++;
+
+    write(1, StringBuf, (uint64_t)buf-(uint64_t)StringBuf);
+}
+
+void printProc(CPUX86State *env, TranslationBlock *tb) {
+    char* buf = StringBuf;
+    buf += strclone(buf, "EIP: ");
+    buf += hexToString(buf, tb->pc, 32);
+    buf += strclone(buf, ", CR3: ");
+    buf += hexToString(buf, env->cr[3], 32);
+    buf[0] = '\n';
+    buf++;
+
+    write(1, StringBuf, (uint64_t)buf-(uint64_t)StringBuf);
+}
+#endif
+
+#ifdef __MHHUANG_TRACE_POINT__
+void helper_mhhuang_trace_point(uint64_t ptr, uint32_t mode)
+{
+    CPUState *env = (CPUState*)ptr;
+    TranslationBlock *tb = env->s2e_current_tb;
+    switch(mode) {
+        case __MHHUANG_MODE_CALL_FROM_GUEST__:
+#ifdef __MHHUANG_PRINT_EXECUTION__
+            /* Note the eip may not be accurate*/
+            printProc(env, tb); 
+#endif
+#ifdef __MHHUANG_DISABLE_TIMER_INTERRUPT__
+            env->timer_interrupt_disabled = 1;
+            env->all_apic_interrupts_disabled = 1;
+#endif
+#ifdef __MHHUANG_SEND_PID__
+            AppPID = env->cr[3];
+#endif
+            break;
+#ifdef __MHHUANG_PRINT_EXECUTION__
+        case __MHHUANG_MODE_PRINT_EIP__: {
+            static int printedLines = 0; 
+            if(env->cr[3] == AppPID) {
+                if(printedLines < 100000) {
+                    printedLines++;
+                    //printReg(env, tb);
+                }
+            }
+
+            break;
+        }
+
+        case __MHHUANG_MODE_CALL__: {
+            if(tb->pc < 0xc0000000) {
+                int aa = 33;
+                int bb = aa;
+            }
+            break;
+        }
+
+        case __MHHUANG_MODE_RET__: {
+            if(tb->pc < 0xc0000000) {
+                int aa = 33;
+                int bb = aa;
+            }
+            break;
+        }
+
+        case __MHHUANG_MODE_DO_NOTHING__: {
+            break;
+        }
+#endif
+        default:
+            write(1, "What do you want to do?\n", 24);
+    }
+}
+#endif  // TRACE_POINT  
+
+

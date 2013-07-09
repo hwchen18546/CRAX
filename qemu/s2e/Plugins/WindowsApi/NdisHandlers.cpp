@@ -1913,10 +1913,10 @@ void NdisHandlers::InitializeHandlerRet(S2EExecutionState* state)
 
     //Check the success status, kill if failure
     klee::ref<klee::Expr> eax = state->readCpuRegister(offsetof(CPUState, regs[R_EAX]), klee::Expr::Int32);
-    klee::Solver *solver = s2e()->getExecutor()->getSolver();
+    klee::TimingSolver *solver = s2e()->getExecutor()->getTimingSolver();
     bool isTrue;
     klee::ref<klee::Expr> eq = klee::EqExpr::create(eax, klee::ConstantExpr::create(0, eax.get()->getWidth()));
-    if (!solver->mayBeTrue(klee::Query(state->constraints, eq), isTrue)) {
+    if (!solver->mayBeTrue(*state, eq, isTrue)) {
         s2e()->getMessagesStream(state) << "Killing state "  << state->getID() <<
                 " because InitializeHandler failed to determine success" << std::endl;
         s2e()->getExecutor()->terminateStateEarly(*state, "InitializeHandler solver failed");

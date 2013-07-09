@@ -79,7 +79,8 @@ public:
     /* klee-related function */
     void processTestCase(const klee::ExecutionState &state,
                          const char *err, const char *suffix);
-    void handlerCorruptEip(klee::ExecutionState &state, klee::ref<klee::Expr> value, klee::ref<klee::Expr> target);
+
+    void handlerCorruptReg(klee::ExecutionState &state, klee::ref<klee::Expr> value, klee::ref<klee::Expr> target);
 };
 
 
@@ -223,6 +224,21 @@ public:
     StatePair fork(klee::ExecutionState &current,
                    klee::ref<klee::Expr> condition, bool isInternal);
 
+#ifdef __KS_MHHUANG_STATE_FORK__
+    StatePair dummyFork(klee::ExecutionState *state, bool needExecute = true);
+
+    /* Pause the "current" state */
+    int waitState(S2EExecutionState *parentState);
+
+    void wakeWaitingState(S2EExecutionState *childState, int waitReturnValue);
+
+    void decideTerminateConcrete(S2EExecutionState *state, int eventID, int eventPara);
+#endif
+
+#ifdef __MHHUANG_PRINT_SYM_PTR__
+    bool isAddrValid(S2EExecutionState* state, uint32_t addr, uint8_t size);
+#endif
+
     bool merge(klee::ExecutionState &base, klee::ExecutionState &other);
 
     void setStateManagerCb(StateManagerCb cb) {
@@ -240,9 +256,6 @@ public:
     void unrefS2ETb(S2ETranslationBlock* s2e_tb);
 
     void queueStateForMerge(S2EExecutionState *state);
-
-    //bool getConcolicMode();
-    
 
 protected:
     static void handlerTraceMemoryAccess(klee::Executor* executor,
@@ -264,6 +277,31 @@ protected:
                                          klee::ExecutionState* state,
                                          klee::KInstruction* target,
                                          std::vector<klee::ref<klee::Expr> > &args);
+
+#ifdef __MHHUANG_QEMU_S2E_WRAPPER__
+static void handleMHQemuS2EWrapper(klee::Executor* executor,
+                                         klee::ExecutionState* state,
+                                         klee::KInstruction* target,
+                                         std::vector<klee::ref<klee::Expr> > &args);
+#endif
+
+#ifdef __KS_MHHUANG_SYM_READ__
+    static bool checkAddrValidConcolic(klee::Executor* executor,
+                                        klee::ExecutionState *state,
+                                        klee::ref<klee::Expr> addrExpr,
+                                        uint8_t size);
+
+    static int symbolicDereferenceDepth(klee::Executor* executor, 
+                                         klee::ExecutionState *state,
+                                         klee::ref<klee::Expr> addr);
+#endif
+
+#ifdef __KS_MHHUANG_STATE_FORK__
+    static void handleMHDecideTerminateSymbolic(klee::Executor* executor,
+                                         klee::ExecutionState* state,
+                                         klee::KInstruction* target,
+                                         std::vector<klee::ref<klee::Expr> > &args);
+#endif
 
     void prepareFunctionExecution(S2EExecutionState *state,
                            llvm::Function* function,

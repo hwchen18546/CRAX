@@ -84,6 +84,10 @@ int execute_llvm = 0;
 
 int tb_invalidated_flag;
 
+#ifdef __MHHUANG_SEND_PID__
+extern uint64_t AppPID;
+#endif
+
 //#define CONFIG_DEBUG_EXEC
 //#define DEBUG_SIGNAL
 

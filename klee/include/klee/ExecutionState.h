@@ -18,6 +18,9 @@
 #include "../../lib/Core/AddressSpace.h"
 #include "klee/Internal/Module/KInstIterator.h"
 
+#include "klee/Solver.h"
+#include "../../lib/Core/TimingSolver.h"
+
 #include <map>
 #include <set>
 #include <vector>
@@ -61,6 +64,58 @@ struct StackFrame {
   ~StackFrame();
 };
 
+#ifdef __MHHUANG_MEASURE_TIME__
+class HelperStat {
+public:
+    clock_t tExec;
+    clock_t tComputeCC;
+    uint64_t numKnownBr;
+    uint64_t numUnknownBr;
+
+    HelperStat() {
+        tExec = 0;
+        tComputeCC = 0;
+        numKnownBr = 0;
+        numUnknownBr = 0;
+    }
+};
+
+class ProcStat {
+public:
+    clock_t tEvaluate, tMustBeTrue, tGetValue, tAddCon, tLastEvaluate, tLastAddCon, tKlee, tHelper, tCallExternal, tComputeCC;
+    uint64_t numBr, numKnownGuestBr, numUnknownGuestBr, numKnownHelperBr, numUnknownHelperBr, numEvaluate, numMustBeTrue, numGetValue, numAddCon, conICount, symICount;
+    HelperStat *helperCC;
+    std::map<std::string, HelperStat*> allHelperStat;
+    std::map<uint32_t, uint32_t> allKnownBranchStat;    /* map from eip to calling times */
+    std::map<uint32_t, uint32_t> allUnknownBranchStat;  /* map from eip to calling times */
+
+    ProcStat() {
+        tEvaluate = 0;
+        tMustBeTrue = 0;
+        tGetValue = 0;
+        tAddCon = 0;
+        tLastEvaluate = 0;
+        tLastAddCon = 0;
+        tKlee = 0;
+        tHelper = 0;
+        tCallExternal = 0;
+        tComputeCC = 0;
+        numBr = 0;
+        numKnownGuestBr = 0;
+        numUnknownGuestBr = 0;
+        numKnownHelperBr = 0;
+        numUnknownHelperBr = 0;
+        numEvaluate = 0;
+        numMustBeTrue = 0;
+        numGetValue = 0;
+        numAddCon = 0;
+        conICount = 0;
+        symICount = 0;
+        helperCC = NULL;
+    }
+};
+#endif
+
 class ExecutionState {
   friend class AddressSpace;
 
@@ -73,6 +128,8 @@ private:
   std::map< std::string, std::string > fnAliases;
 
 public:
+  mutable ConstraintManager constraints;
+
   bool fakeState;
   // Are we currently underconstrained?  Hack: value is size to make fake
   // objects.
@@ -82,7 +139,6 @@ public:
   // pc - pointer to current instruction stream
   KInstIterator pc, prevPC;
   stack_ty stack;
-  ConstraintManager constraints;
   mutable double queryCost;
   double weight;
   AddressSpace addressSpace;
@@ -110,14 +166,39 @@ public:
   std::string getFnAlias(std::string fn);
   void addFnAlias(std::string old_fn, std::string new_fn);
   void removeFnAlias(std::string fn);
- 
-  void *  eip;
-  void *  ebp;
-  void *  esp;
- 
+
+#ifdef __MHHUANG_MEASURE_TIME__
+  /* The mutable keyword enable us to change the value of those fields in functions with 
+     const ExecutionState parameter */
+
+  /* Map env->cr[3] value to ProcStat */
+  mutable std::map<uint32_t, ProcStat*> allProcStat;
+  mutable std::map<uint32_t, ProcStat*>::iterator currentProcStat;
+  mutable uint32_t lastCr3, lastStackSize;
+  mutable ProcStat *pCurProcStat;
+  mutable HelperStat *pCurHelperStat;
+  mutable HelperStat *pHelperCC;
+  mutable HelperStat *pHelperCCCaller;
+#endif
+
+#if defined(__MHHUANG_EBP_EXPLOIT__)
+  bool inHelper;
+#endif
+
+  bool isConcolicMode;
+
+  uint32_t *eip;
+  uint32_t *ebp;
+  uint32_t *esp;
+  uint32_t *cr3;  /* -mhhuang- used to trace guest OS process */
+
 private:
+  void initialize();
+
   ExecutionState() : fakeState(false), underConstrained(0),
-                     addressSpace(this), ptreeNode(0) {}
+                     addressSpace(this), ptreeNode(0) {
+    initialize();
+  }
 
 protected:
   virtual ExecutionState* clone();
@@ -142,9 +223,21 @@ public:
   void addSymbolic(const MemoryObject *mo, const Array *array) { 
     symbolics.push_back(std::make_pair(mo, array));
   }
-  void addConstraint(ref<Expr> e) { 
-    constraints.addConstraint(e); 
-  }
+
+  /* An ugly hack to let TimingSolver use S2EExecutionState's field */
+  virtual bool evaluate(TimingSolver &solver, ref<Expr> expr, Solver::Validity &result) const;
+  virtual bool mustBeTrue(TimingSolver &solver, ref<Expr> expr, bool &result) const;
+  virtual bool mustBeFalse(TimingSolver &solver, ref<Expr> expr, bool &result) const;
+  virtual bool mayBeTrue(TimingSolver &solver, ref<Expr> expr, bool &result) const;
+  virtual bool mayBeFalse(TimingSolver &solver, ref<Expr> expr, bool &result) const;
+  virtual bool getValue(TimingSolver &solver, ref<Expr> expr, ref<ConstantExpr> &result) const;
+  virtual bool getInitialValues(TimingSolver &solver, const std::vector<const Array*> &objects, 
+                std::vector< std::vector<unsigned char> > &result) const;
+
+  /* An ugly hack to let Executor::getSymbolicSolution works */
+  virtual ExecutionState* getClone() const;
+
+  virtual void addConstraint(ref<Expr> e) const;
 
   virtual bool merge(const ExecutionState &b);
 };

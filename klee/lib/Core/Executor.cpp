@@ -413,6 +413,10 @@ Executor::~Executor() {
 ref<Expr> Executor::simplifyExpr(const ExecutionState &s, ref<Expr> e)
 {
     if(exprSimplifier) {
+#ifdef __MHHUANG_REDUCE_SIMPLIFY_EXPR__
+        s.constraints.startEmptyEvaluate();
+#endif
+
         ref<Expr> simplified = exprSimplifier->simplify(e);
 
         if (ValidateSimplifier) {
@@ -428,9 +432,13 @@ ref<Expr> Executor::simplifyExpr(const ExecutionState &s, ref<Expr> e)
             }
         }
 
-        return simplified;
+#ifdef __MHHUANG_REDUCE_SIMPLIFY_EXPR__
+        s.constraints.endEmptyEvaluate();
+#endif
 
-    }else {
+        return simplified;
+    }
+    else {
         return e;
     }
 }
@@ -674,6 +682,42 @@ void Executor::initializeGlobals(ExecutionState &state) {
   }
 }
 
+#ifdef __KS_MHHUANG_STATE_FORK__
+Executor::StatePair Executor::dummyFork(ExecutionState *state, bool needExecute) {
+    ExecutionState *newState, *oldState = state;
+
+    newState = oldState->branch();
+
+    if(needExecute) {
+        addedStates.insert(newState);
+
+        state->ptreeNode->data = 0;
+        std::pair<PTree::Node*, PTree::Node*> res =
+            processTree->split(state->ptreeNode, newState, oldState);
+        newState->ptreeNode = res.first;
+        oldState->ptreeNode = res.second;
+    }
+
+#if 0
+    bool isInternal = false;
+    if (!isInternal) {
+      if (pathWriter) {
+        newState->pathOS = pathWriter->open(state->pathOS);
+        oldState->pathOS << "1";
+        newState->pathOS << "0";
+      }      
+      if (symPathWriter) {
+        newState->symPathOS = symPathWriter->open(state->symPathOS);
+        oldState->symPathOS << "1";
+        newState->symPathOS << "0";
+      }
+    }
+#endif
+
+    return StatePair(oldState, newState);
+}
+#endif
+
 void Executor::branch(ExecutionState &state, 
                       const std::vector< ref<Expr> > &conditions,
                       std::vector<ExecutionState*> &result) {
@@ -752,11 +796,10 @@ Executor::StatePair
 Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
   condition = simplifyExpr(current, condition);
 
-  Solver::Validity res;
+  Solver::Validity res = Solver::Unknown;
   std::map< ExecutionState*, std::vector<SeedInfo> >::iterator it = 
     seedMap.find(&current);
   bool isSeeding = it != seedMap.end();
-//printf("seed:%d\n",isSeeding);
   if (!isSeeding && !isa<ConstantExpr>(condition) && 
       (MaxStaticForkPct!=1. || MaxStaticSolvePct != 1. ||
        MaxStaticCPForkPct!=1. || MaxStaticCPSolvePct != 1.) &&
@@ -781,64 +824,62 @@ Executor::fork(ExecutionState &current, ref<Expr> condition, bool isInternal) {
       (void) success;
       addConstraint(current, EqExpr::create(value, condition));
       condition = value;
-    }      
+    }
   }
 
   double timeout = stpTimeout;
   if (isSeeding)
     timeout *= it->second.size();
   solver->setTimeout(timeout);
-  //ExecutionState temp = current;
-  //temp.addConstraint(temp.constraints.getConcolicConstraints());
-  //bool success = solver->evaluate(temp, condition, res);
-  //addConstraint(current, current.constraints.getConcolicConstraints());
-//    condition = current.constraints.simplifyExpr(condition);
 
-  bool success;
-  success = solver->evaluate(current, condition, res);
+#ifdef __MHHUANG_MEASURE_TIME__
+  //assert(current.currentProcStat != current.allProcStat.end() && "Something Error!\n");
+  current.pCurProcStat->numBr++;
+#endif
 
-//  if(!condition.get()->isTrue() && !condition.get()->isFalse())
-  if(res == Solver::Unknown && getConcolicMode()/*getConcolicConstraints()->isTrue()*/)
-  {
-    //ref<Expr> qq = AndExpr::create(condition, current.constraints.getConcolicConstraints());
-    //qq = simplifyExpr(current, qq);
-    //std::cout << "================================== " << qq << std::endl;
-  //std::cout << "-------2---------- " << current.constraints.simplifyExpr(AndExpr::create(condition,current.constraints.getConcolicConstraints())) << std::endl;
- 
-//    ExecutionState temp(current.constraints.getConstraints());
-
-//    addConstraint(temp, current.constraints.getConcolicConstraints()); 
-current.constraints.swapConstraints();
-  //std::cout << "-------1---------- " << AndExpr::create(current.constraints.getConcolicConstraints(), condition) << std::endl;
-   // std::cout << "-------1---------- " <<  condition << std::endl;
-    //success = solver->evaluate(current, AndExpr::create(current.constraints.getConcolicConstraints(), condition), res);
-    success = solver->evaluate(current,  condition, res);
-    //success = solver->evaluate(temp,  condition, res);
-current.constraints.swapConstraints();
-   // std::cout << "-------2---------- " << res << std::endl;
-    if(res == Solver::True)
-    {
-      //std::cout << "branch : True" << std::endl;
-      //res = Solver::True;
-      addConstraint(current, condition);
-    }
-    else if(res == Solver::False)
-    {
-      //std::cout << "branch : False" << std::endl;
-      //res = Solver::False;
-      addConstraint(current, Expr::createIsZero(condition));
-    }
-    else
-    {
-      assert(0 && "Error!!! In concolic mode, only one branch can be true.");
-    }
-    // res = Solver::True;
+  /* -mhhuang-delete- */
+  if(!isa<klee::ConstantExpr>(condition)) {
+      int aa = 33;
+      int bb = aa;
   }
-  //bool success = solver->evaluate(current, condition, res);
-//  if(res==Solver::Unknown)
-//    res = Solver::True;
-  //addConstraint(current, condition);
-  //else
+
+  /* The concolic evaluation is moved to S2EExecutionState::mayBeTrue */
+  bool success = solver->evaluate(current, condition, res);
+  if(res != Solver::Unknown) {  // Not unknown branch
+#ifdef __MHHUANG_MEASURE_TIME__
+    if(current.stack.size() > 2) {
+      //assert(current.pCurHelperStat != NULL && "Stack size may be changed secretly!\n");
+      current.pCurProcStat->numKnownHelperBr++;
+      current.pCurHelperStat->numKnownBr++;
+    }
+    else {
+      //current.pCurProcStat->allKnownBranchStat[*(current.eip)]++;
+      current.pCurProcStat->numKnownGuestBr++;
+    }
+#endif
+
+    if(current.isConcolicMode) {
+        if(res == Solver::True) {
+            addConstraint(current, condition);
+        }
+        else if(res == Solver::False){
+            addConstraint(current, Expr::createIsZero(condition));
+        }
+    }
+  }
+#ifdef __MHHUANG_MEASURE_TIME__
+  else {
+    //current.pCurProcStat->allUnknownBranchStat[*(current.eip)]++;
+    if(current.stack.size() > 2) {
+      //assert(current.pCurHelperStat != NULL && "Stack size may be changed secretly!\n");
+      current.pCurProcStat->numUnknownHelperBr++;
+      current.pCurHelperStat->numUnknownBr++;
+    }
+    else {
+      current.pCurProcStat->numUnknownGuestBr++;
+    }
+  }
+#endif   
 
   solver->setTimeout(0);
   if (!success) {
@@ -886,14 +927,7 @@ current.constraints.swapConstraints();
 	  klee_warning_once(0, "skipping fork (max-forks reached)");
 
         TimerStatIncrementer timer(stats::forkTime);
-        /*for(int iii=0 ; iii<10 ; iii++)
-        {
-          printf("KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK %d\n",theRNG.getBool());
-          sleep(3);
-        }*/
-        //Solver::Validity result = res;
-        //bool success = solver->evaluate(current, AndExpr::create(current.constraints.getConcolicConstraints(), condition), result);
-        if (/*result != Solver::False*/theRNG.getBool()) {
+        if (theRNG.getBool()) {
           addConstraint(current, condition);
           res = Solver::True;    
         } else {
@@ -948,9 +982,6 @@ current.constraints.swapConstraints();
         current.pathOS << "1";
       }
     }
-//if(ConcolieMode)
-//addConstraint(current, condition);
-
     return StatePair(&current, 0);
   } else if (res==Solver::False) {
     if (!isInternal) {
@@ -958,8 +989,6 @@ current.constraints.swapConstraints();
         current.pathOS << "0";
       }
     }
-//if(ConcolieMode)
-//addConstraint(current, Expr::createIsZero(condition));
     return StatePair(0, &current);
   } else {
     TimerStatIncrementer timer(stats::forkTime);
@@ -1169,30 +1198,16 @@ Executor::toConstant(ExecutionState &state,
 
   ref<ConstantExpr> value;
 
-//ExecutionState temp(state.constraints.getConstraints());         
-                                                                   
-//addConstraint(temp, state.constraints.getConcolicConstraints()); 
-
-
-  if(getConcolicMode())
-    state.constraints.swapConstraints();
-
   bool success = solver->getValue(state, e, value);
-
-  if(getConcolicMode())
-    state.constraints.swapConstraints();
 
   assert(success && "FIXME: Unhandled solver failure");
   (void) success;
-
     
   std::ostringstream os;
   os << "silently concretizing (reason: " << reason << ") expression " << e 
      << " to value " << value 
      << " (" << (*(state.pc)).info->file << ":" << (*(state.pc)).info->line << ")";
 
-  //std::cout << " value: " << e << std::endl;
-      
   klee_warning_external(reason, "%s", os.str().c_str());
 
   //if(strcmp(reason, "memory access from concrete code"))
@@ -1209,23 +1224,11 @@ Executor::toConstantSilent(ExecutionState &state,
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(e))
     return CE;
 
-//ExecutionState temp(state.constraints.getConstraints());         
-//ExecutionState temp = state;
-//temp.addConstraint(state.constraints.getConcolicConstraints());
-//ref<Expr> two = AndExpr::create(e, state.constraints.getConcolicConstraints());
- 
   ref<ConstantExpr> value;
-
-  if(getConcolicMode())
-    state.constraints.swapConstraints();
 
   bool success = solver->getValue(state, e, value);
 
-  if(getConcolicMode())
-    state.constraints.swapConstraints();
-
   assert(success && "FIXME: Unhandled solver failure");
-  (void) success;
 
   return value;
 }
@@ -1298,11 +1301,20 @@ void Executor::executeCall(ExecutionState &state,
   Instruction *i = ki->inst;
   if (f && f->isDeclaration()) {
     switch(f->getIntrinsicID()) {
-    case Intrinsic::not_intrinsic:
+    case Intrinsic::not_intrinsic: {
       // state may be destroyed by this call, cannot touch
+#ifdef __MHHUANG_MEASURE_TIME__
+      clock_t start = clock();
+      //assert(state.currentProcStat != state.allProcStat.end() && "Something Error!\n");
+#endif
+
       callExternalFunction(state, ki, f, arguments);
-      break;
-        
+
+#ifdef __MHHUANG_MEASURE_TIME__
+      state.pCurProcStat->tCallExternal += (clock()-start);
+#endif
+      break;  
+    }
       // va_arg is handled by caller and intrinsic lowering, see comment for
       // ExecutionState::varargs
     case Intrinsic::vastart:  {
@@ -1510,6 +1522,38 @@ static bool isDebugIntrinsic(const Function *f, KModule *KM) {
 }
 
 void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
+#ifdef __MHHUANG_EBP_EXPLOIT__
+  if(state.ebpCorrupted) {
+      /* If EBP is corrupted, we must try not let the program crash before return */
+      if(state.stack.size() == 3) {
+          if(!state.inHelper) {
+              state.inHelper = true;
+              std::string fName = state.stack.back().kf->function->getNameStr();
+              /* Division, we must constraint the divider not to be zero */
+              if(fName.find("div", 7) != std::string::npos) {
+                  /* Integer division */
+                  if(fName.find("fdiv", 7) == std::string::npos) {
+                      ref<Expr> divider = state.stack.back().locals[0].value;
+                      addConstraint(state, Expr::createIsZero(Expr::createIsZero(divider)));
+                  }
+                  /* Floating point division */
+                  else {
+                  } 
+              }
+              /* Memory load, we must constraint the address to be a readable address */
+              else if(fName.find("__ld", 0) != std::string::npos) {
+              }
+              /* Memory store, we must constraint the address to be a writable address */
+              else if(fName.find("__st", 0) != std::string::npos) {
+              }
+          }
+      }
+      else if(state.stack.size() == 2) {
+          state.inHelper = false;
+      }
+  }
+#endif
+
   Instruction *i = ki->inst;
   switch (i->getOpcode()) {
     // Control flow
@@ -1625,6 +1669,8 @@ void Executor::executeInstruction(ExecutionState &state, KInstruction *ki) {
     BasicBlock *bb = si->getParent();
 
     cond = simplifyExpr(state, toUnique(state, cond));
+    cond = toConstant(state, cond, "Condition of switch instruction");
+
     if (ConstantExpr *CE = dyn_cast<ConstantExpr>(cond)) {
       // Somewhat gross to create these all the time, but fine till we
       // switch to an internal rep.
@@ -2766,7 +2812,13 @@ void Executor::callExternalFunction(ExecutionState &state,
   // check if specialFunctionHandler wants it
   if (specialFunctionHandler->handle(state, function, target, arguments))
     return;
-  
+
+  /* -mhhuang-delete- */
+  std::string fName = function->getNameStr();
+  if(fName.compare("qemu_system_reset_request") == 0) {
+        terminateStateEarly(state, "Error: system reset");
+  }
+
   if (NoExternals && !okExternals.count(function->getName())) {
     std::cerr << "KLEE:ERROR: Calling not-OK external function : " 
                << function->getNameStr() << "\n";
@@ -2816,6 +2868,7 @@ void Executor::callExternalFunction(ExecutionState &state,
   if (!SuppressExternalWarnings) {
     std::ostringstream os;
     os << "calling external: " << function->getNameStr() << "(";
+
     for (unsigned i=0; i<arguments.size(); i++) {
         os << std::hex << arguments[i];
       if (i != arguments.size()-1)
@@ -2876,7 +2929,7 @@ ref<Expr> Executor::replaceReadWithSymbolic(ExecutionState &state,
   ref<Expr> res = Expr::createTempRead(array, e->getWidth());
   ref<Expr> eq = NotOptimizedExpr::create(EqExpr::create(e, res));
   std::cerr << "Making symbolic: " << eq << "\n";
-  state.addConstraint(eq);
+  state.addConstraint(eq); /* -mhhuang_direct_addcon- */
   return res;
 }
 
@@ -3083,16 +3136,8 @@ void Executor::executeMemoryOperation(ExecutionState &state,
   if (SimplifySymIndices) {
     if (!isa<ConstantExpr>(address))
       address = state.constraints.simplifyExpr(address);
-  //  if (isWrite && !isa<ConstantExpr>(value))
-  //    value = state.constraints.simplifyExpr(value);
   }
 
-//                  ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
-//                  if((uint64_t )state.eip == CE->getZExtValue())
-//                    std::cout << "value : " << value << std::endl;
-          //if((uint64_t )state.eip == CE->getZExtValue() )
-          //if(state->getPc() == 0x8048575)
-          //{cout << "oh~ my ~ god~ " << value << std::endl;}
   // fast path: single in-bounds resolution
   ObjectPair op;
   bool success;
@@ -3136,103 +3181,37 @@ void Executor::executeMemoryOperation(ExecutionState &state,
                                 "readonly.err");
         } else {
           ObjectState *wos = state.addressSpace.getWriteable(mo, os);
-/*                  ref<Expr> e = simplifyExpr(state, value); 
-                  e = state.constraints.simplifyExpr(e);    
-
-                  ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
-
-                  if((uint64_t )state.ebp == CE->getZExtValue() && dyn_cast<ConstantExpr>(e) == NULL)
-                  {
-                     std::cout << "EBBBBBBP " << e<< std::endl;
-                  }
-                  else if((uint64_t )state.esp == CE->getZExtValue() && dyn_cast<ConstantExpr>(e) == NULL)
-                  {
-                     std::cout << "ESSSSSSSP " << e<< std::endl;
-
-                  }
-*/
           if(mo->isSharedConcrete) {
-              if(mo->isValueIgnored) {
-             
-//                  ref<Expr> e = simplifyExpr(state, value); 
-//                  e = state.constraints.simplifyExpr(e);    
+            if(mo->isValueIgnored) {
+              offset = toConstantSilent(state, offset);
+              value  = toConstantSilent(state,  value);
+            } else {
+              std::stringstream ss;
+              ss << address;
+              std::string str(ss.str());
 
- //                 ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
-
- //                 if(/*(uint64_t )state.ebp == CE->getZExtValue() &&*/ dyn_cast<ConstantExpr>(e) == NULL)
- //                 {
-  //                   std::cout << "EBBBBBBP " << CE->getZExtValue()<< std::endl;
- //                 }
-                   
-                  offset = toConstantSilent(state, offset);
-                  value  = toConstantSilent(state,  value);
-              } else {
-                  //S2EExecutionState *s2eState = (S2EExecutionState * ) state;
-                  //uint8_t *eip_address = (uint8_t*) m_cpuSystemState->address - CPU_OFFSET(eip);
-                  //printf("address = %x\n",address);
-                  //std::cout << std::hex << "eip: " << state.eip << std::endl;
-                  std::stringstream ss;
-                  ss << address;
-                  //#include <string>
-                  std::string str(ss.str());
-                  //const char *x = str.c_str();
-
-
-                  ref<Expr> e = simplifyExpr(state, value);                      
-                  e = state.constraints.simplifyExpr(e);           
-                  //if (ConstantExpr *CE = dyn_cast<ConstantExpr>(e))
-
-                  //std::cout <<  "eip: " << state.eip << std::endl;
-                  ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
-                  //std::cout <<  "address: " <<std::hex<< CE->getZExtValue()<< std::endl;
-                  //std::cout <<  "value : " << value->getWidth()<< std::endl;
-
-                  //ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
-
-
-                  if((uint64_t )state.eip == CE->getZExtValue() && dyn_cast<ConstantExpr>(value) == NULL)
-                  {
-                    //std::cout << "EIP : " << (uint64_t)state.eip << std::endl;
-                    //m_s2e->getCorePlugin();0
-                    interpreterHandler->handlerCorruptEip(state, value, address);
-                    //printf("WWIIINNNNN\n");
-                    //addConstraint(state, klee::EqExpr::create(value, klee::ConstantExpr::alloc(0x80484f5 ,klee::Expr::Int32)));
-                    //addConstraint(state,( klee::EqExpr::create(value, klee::ConstantExpr::alloc(0x8048535 ,klee::Expr::Int32)));
-                    //cout << "eip: " << (uint64_t)state.eip << " value: " << value << " kid: " << dyn_cast<ConcatExpr>(value)->getLeft() << " width: " << (value.get())->getWidth() << std::endl;
-                  }
-
-    
- 
-                  offset = toConstant(state, offset, "write to always concrete memory");
-                  value  = toConstant(state,  value, str.c_str());//"write to always concrete memory");
-                  //if((uint64_t )state.eip == CE->getZExtValue() && dyn_cast<ConstantExpr>(e) == NULL)
-                    //cout << "vvvv: " << value << std::endl;
+              ref<Expr> e = simplifyExpr(state, value);
+              e = state.constraints.simplifyExpr(e);
+              ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
+              if(CE != NULL && (uint64_t )state.eip == CE->getZExtValue() && !isa<ConstantExpr>(value)) {
+                  interpreterHandler->handlerCorruptReg(state, value, address);
               }
+ 
+              offset = toConstant(state, offset, "write to always concrete memory");
+              value  = toConstant(state,  value, str.c_str());//"write to always concrete memory");
+            }
           }
-                  ref<Expr> e = simplifyExpr(state, value); 
-                  e = state.constraints.simplifyExpr(e);    
+          ref<Expr> e = simplifyExpr(state, value); 
+          e = state.constraints.simplifyExpr(e);    
 
-                  ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
-
-                  if(((uint64_t )state.ebp == CE->getZExtValue() || (uint64_t )state.esp == CE->getZExtValue()) && dyn_cast<ConstantExpr>(e) == NULL)
-                  {
-                    interpreterHandler->handlerCorruptEip(state, value, address);
-                    // std::cout << "EBBBBBBP " << e<< std::endl;
-                  }
-                  //else if((uint64_t )state.esp == CE->getZExtValue() && dyn_cast<ConstantExpr>(e) == NULL)
-                  //{
-                    //interpreterHandler->handlerCorruptEip(state, value, CE->getZExtValue());
-                    // std::cout << "ESSSSSSSP " << e<< std::endl;
-
-                  //}
-
-                 // ref<Expr> e = simplifyExpr(state, value);                      
-                 // e = state.constraints.simplifyExpr(e);           
-                 // ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
-          //if((uint64_t )state.eip == CE->getZExtValue() )
-          //{cout << "oh~ my ~ god~ " << value << std::endl;}
+          ConstantExpr *CE = dyn_cast<ConstantExpr>(address);
+          if(CE != NULL && ((uint64_t)state.ebp == CE->getZExtValue() || (uint64_t)state.esp == CE->getZExtValue()) 
+                  && !isa<ConstantExpr>(e)) {
+              interpreterHandler->handlerCorruptReg(state, value, address);
+          }
+         
           wos->write(offset, value);
-        }          
+        }
       } else {
         if(mo->isSharedConcrete) {
             if(mo->isValueIgnored) {
@@ -3242,7 +3221,7 @@ void Executor::executeMemoryOperation(ExecutionState &state,
             }
         }
         ref<Expr> result = os->read(offset, type);
-        
+
         if (interpreterOpts.MakeConcreteSymbolic)
           result = replaceReadWithSymbolic(state, result);
         
@@ -3546,7 +3525,9 @@ bool Executor::getSymbolicSolution(const ExecutionState &state,
                                    &res) {
   solver->setTimeout(stpTimeout);
 
-  ExecutionState tmp(state);
+  /* -mhhuang- Modified, the original is ExecutionState tmp(state)
+     Modified to let getInitialValues can use S2EExecutionState::getInitialValues */
+  ExecutionState *tmp = state.getClone();;
   if (!NoPreferCex) {
     for (unsigned i = 0; i != state.symbolics.size(); ++i) {
       const MemoryObject *mo = state.symbolics[i].first;
@@ -3554,10 +3535,10 @@ bool Executor::getSymbolicSolution(const ExecutionState &state,
         mo->cexPreferences.begin(), pie = mo->cexPreferences.end();
       for (; pi != pie; ++pi) {
         bool mustBeTrue;
-        bool success = solver->mustBeTrue(tmp, Expr::createIsZero(*pi), 
+        bool success = solver->mustBeTrue(*tmp, Expr::createIsZero(*pi), 
                                           mustBeTrue);
         if (!success) break;
-        if (!mustBeTrue) tmp.addConstraint(*pi);
+        if (!mustBeTrue) tmp->addConstraint(*pi);    /* -mhhuang_direct_addcon- */
       }
       if (pi!=pie) break;
     }
@@ -3567,18 +3548,22 @@ bool Executor::getSymbolicSolution(const ExecutionState &state,
   std::vector<const Array*> objects;
   for (unsigned i = 0; i != state.symbolics.size(); ++i)
     objects.push_back(state.symbolics[i].second);
-  bool success = solver->getInitialValues(tmp, objects, values);
+  bool success = solver->getInitialValues(*tmp, objects, values);
   solver->setTimeout(0);
   if (!success) {
     klee_warning("unable to compute initial values (invalid constraints?)!");
     ExprPPrinter::printQuery(std::cerr,
                              state.constraints, 
                              ConstantExpr::alloc(0, Expr::Bool));
+
+    delete tmp;
     return false;
   }
   
   for (unsigned i = 0; i != state.symbolics.size(); ++i)
     res.push_back(std::make_pair(state.symbolics[i].first->name, values[i]));
+
+  delete tmp;
   return true;
 }
 
@@ -3637,12 +3622,99 @@ void Executor::addSpecialFunctionHandler(Function* function,
     specialFunctionHandler->addUHandler(function, handler);
 }
 
+/* -mhhuang- Don't use this*/
+#if 0
 Solver *Executor::getSolver() const
 {
     return solver->solver;
+}
+#endif
+
+TimingSolver *Executor::getTimingSolver() const
+{
+    return solver;
 }
 
 bool Executor::getConcolicMode()
 {
   return ConcolicMode;
 }
+
+#ifdef __MHHUANG_MEASURE_TIME__
+uint32_t Executor::getConstraintSize(ExecutionState &state) {
+    uint32_t res = 0;
+    int numConstraints = state.constraints.constraints.size();
+    for(int i=0; i<numConstraints; i++) {
+        if(!isa<ConstantExpr>(state.constraints.constraints[i])) {
+            res += getExprSize(state.constraints.constraints[i]);
+        }
+    }
+    return res;
+}
+
+#define CASE_TERMINAL_EXPR(_kind)       \
+    case Expr::_kind: {                 \
+        return sizeof(_kind ## Expr);   \
+    }
+
+#define CASE_UNARY_EXPR(_kind)          \
+    case Expr::_kind: {                 \
+        return sizeof(_kind ## Expr)+   \
+            getExprSize(e->getKid(0));  \
+    }
+
+#define CASE_BINARY_EXPR(_kind)         \
+    case Expr::_kind: {                 \
+        return sizeof(_kind ## Expr)+   \
+            getExprSize(e->getKid(0))+  \
+            getExprSize(e->getKid(1));  \
+    }
+
+uint32_t Executor::getExprSize(ref<Expr> e) {
+    switch(e->getKind()) {
+        CASE_TERMINAL_EXPR(Read)
+        CASE_TERMINAL_EXPR(Constant)
+
+        CASE_UNARY_EXPR(ZExt)
+        CASE_UNARY_EXPR(SExt)
+        CASE_UNARY_EXPR(Not)
+        CASE_UNARY_EXPR(Extract)
+
+        CASE_BINARY_EXPR(Concat)
+        CASE_BINARY_EXPR(Add)
+        CASE_BINARY_EXPR(Sub)
+        CASE_BINARY_EXPR(Mul)
+        CASE_BINARY_EXPR(UDiv)
+        CASE_BINARY_EXPR(SDiv)
+        CASE_BINARY_EXPR(URem)
+        CASE_BINARY_EXPR(SRem)
+        CASE_BINARY_EXPR(And)
+        CASE_BINARY_EXPR(Or)
+        CASE_BINARY_EXPR(Xor)
+        CASE_BINARY_EXPR(Shl)
+        CASE_BINARY_EXPR(LShr)
+        CASE_BINARY_EXPR(AShr)
+        CASE_BINARY_EXPR(Eq)
+        CASE_BINARY_EXPR(Ne)
+        CASE_BINARY_EXPR(Ult)
+        CASE_BINARY_EXPR(Ule)
+        CASE_BINARY_EXPR(Ugt)
+        CASE_BINARY_EXPR(Uge)
+        CASE_BINARY_EXPR(Slt)
+        CASE_BINARY_EXPR(Sle)
+        CASE_BINARY_EXPR(Sgt)
+        CASE_BINARY_EXPR(Sge)
+
+        case Expr::Select: {
+            return sizeof(SelectExpr)+
+                getExprSize(e->getKid(0))+
+                getExprSize(e->getKid(1))+
+                getExprSize(e->getKid(2));
+        }
+
+        default:
+            assert(false && "Error: Unhandled expression type\n");
+    }
+}
+#endif
+

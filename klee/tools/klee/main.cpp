@@ -238,7 +238,8 @@ public:
 
   static void getOutFiles(std::string path,
 			  std::vector<std::string> &results);
-  void handlerCorruptEip(klee::ExecutionState &state, ref<Expr> value, ref<Expr> target){};
+
+  void handlerCorruptReg(klee::ExecutionState &state, ref<Expr> value, ref<Expr> target){};
 };
 
 KleeHandler::KleeHandler(int argc, char **argv) 

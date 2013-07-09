@@ -70,11 +70,6 @@ bool ConstraintManager::rewriteConstraints(ExprVisitor &visitor) {
          it = old.begin(), ie = old.end(); it != ie; ++it) {
     ref<Expr> &ce = *it;
     ref<Expr> e = visitor.visit(ce);
-//if(it-old.begin() < concolicSize)
-//constraints.push_back(ce);
-//else
-//{
-//std::cout << "e: " << e << " \nce: " << ce << " \n==? "<< (e == ce) << std::endl;
     if (e!=ce) {
       addConstraintInternal(e); // enable further reductions
       changed = true;
@@ -82,8 +77,6 @@ bool ConstraintManager::rewriteConstraints(ExprVisitor &visitor) {
       constraints.push_back(ce);
     }
   }
-//}
-//std::cout << "====================================" << std::endl;
   return changed;
 }
 
@@ -95,8 +88,13 @@ ref<Expr> ConstraintManager::simplifyExpr(ref<Expr> e) const {
   if (isa<ConstantExpr>(e))
     return e;
 
+#ifdef __MHHUANG_REDUCE_SIMPLIFY_EXPR__
+  ConstraintManager *cm = const_cast<ConstraintManager*>(this);
+  static std::vector<ref<Expr> > empty;
+  cm->constraints.swap(empty);
+#endif
+
   std::map< ref<Expr>, ref<Expr> > equalities;
- //std::cout << "================ " << concolicSize << std::endl; 
   for (ConstraintManager::constraints_ty::const_iterator 
          it = constraints.begin(), ie = constraints.end(); it != ie; ++it) {
     if (const EqExpr *ee = dyn_cast<EqExpr>(*it)) {
@@ -113,7 +111,13 @@ ref<Expr> ConstraintManager::simplifyExpr(ref<Expr> e) const {
     }
   }
 
-  return ExprReplaceVisitor2(equalities).visit(e);
+  ref<Expr> res = ExprReplaceVisitor2(equalities).visit(e);
+
+#ifdef __MHHUANG_REDUCE_SIMPLIFY_EXPR__
+  cm->constraints.swap(empty);
+#endif
+
+  return res;
 }
 
 void ConstraintManager::addConstraintInternal(ref<Expr> e) {
@@ -126,11 +130,9 @@ void ConstraintManager::addConstraintInternal(ref<Expr> e) {
   // (byte-constant comparison).
   switch (e->getKind()) {
   case Expr::Constant:
-//    assert(cast<ConstantExpr>(e)->isTrue() && 
-//           "attempt to add invalid (false) constraint");
     break;
     
-    // split to enable finer grained independence and other optimizations
+  // split to enable finer grained independence and other optimizations
   case Expr::And: {
     BinaryExpr *be = cast<BinaryExpr>(e);
     addConstraintInternal(be->left);
@@ -154,8 +156,139 @@ void ConstraintManager::addConstraintInternal(ref<Expr> e) {
   }
 }
 
-void ConstraintManager::addConstraint(ref<Expr> e) {
+void ConstraintManager::cAddConstraint(ref<Expr> e) {
   e = simplifyExpr(e);
   addConstraintInternal(e);
 }
+
+void ConstraintManager::addPermanentConstraintAndClearTempConstraints(ref<Expr> e) {
+    clearTempConstraints();
+
+    constraints.swap(permanentConstraints);
+    cAddConstraint(e);
+    constraints.swap(permanentConstraints);
+
+    cAddConstraint(e);
+}
+
+void ConstraintManager::addTempConstraint(ref<Expr> e) {
+    //if(needReplaceByPermanentCons) {
+    //    constraints = permanentConstraints;
+    //    needReplaceByPermanentCons = false;
+    //}
+
+    cAddConstraint(e);
+    tempConstraints.push_back(e);
+}
+
+void ConstraintManager::clearTempConstraints() {
+    //needReplaceByPermanentCons = true;
+    constraints = permanentConstraints;
+    tempConstraints.clear();
+}
+
+std::vector<ref<Expr> > ConstraintManager::getTempConstraints() {
+    return tempConstraints;
+}
+
+void ConstraintManager::setTempConstraints(std::vector<ref<Expr> > tempCons) {
+    clearTempConstraints();
+
+    std::vector<ref<Expr> >::iterator it;
+    for(it=tempCons.begin(); it!=tempCons.end(); it++) {
+        addTempConstraint(*it);
+    }
+}
+
+void ConstraintManager::startSymbolicEvaluate() {
+    //if(needReplaceByPermanentCons) {
+    //    constraints = permanentConstraints;
+    //    needReplaceByPermanentCons = false;
+    //}
+}
+
+void ConstraintManager::endSymbolicEvaluate() {
+}
+
+void ConstraintManager::startConcolicEvaluate() {
+    assert(inPermanentEvalStage == false);
+
+    constraints.swap(concolicConstraints);
+    inConcolicEvalStage = true;
+}
+
+void ConstraintManager::endConcolicEvaluate() {
+    constraints.swap(concolicConstraints);
+    inConcolicEvalStage = false;
+}
+
+void ConstraintManager::startPermanentEvaluate() {
+    assert(inConcolicEvalStage == false);
+
+    constraints.swap(permanentConstraints);
+    inPermanentEvalStage = true;
+}
+
+void ConstraintManager::endPermanentEvaluate() {
+    constraints.swap(permanentConstraints);
+    inPermanentEvalStage = false;
+}
+
+#ifdef __MHHUANG_REDUCE_SIMPLIFY_EXPR__
+void ConstraintManager::startEmptyEvaluate() {
+    constraints.swap(emptyConstraints);
+    inEmptyEvalStage = true;
+}
+
+void ConstraintManager::endEmptyEvaluate() {
+    constraints.swap(emptyConstraints);
+    inEmptyEvalStage = false;
+}
+#endif
+
+//#ifdef __MHHUANG_GDB__
+/* mhhuang */
+#include <iostream>
+#include <fstream>
+#include <sstream>
+
+/* mhhuang added function, only used in gdb */
+int ConstraintManager::saveAllConcolicConstraints()
+{
+    std::ofstream fs;
+    fs.open("/home/mhhuang/concolicconstraints");
+
+    std::vector< ref<Expr> >::iterator it = concolicConstraints.begin(), e = concolicConstraints.end();
+
+    for(; it!=e; it++) {
+        Expr* ex = dyn_cast<Expr>((*it).get());
+        fs << *ex;
+        fs << "\n";
+    }
+
+    fs.close();
+    return 1;
+}
+
+/* mhhuang added function, only used in gdb */
+int ConstraintManager::saveAllConstraints(int id)
+{
+    std::ostringstream oss;
+    oss << "/home/mhhuang/constraints_" << id;
+
+    std::ofstream fs;
+    fs.open(oss.str().c_str());
+
+    std::vector< ref<Expr> >::iterator it = constraints.begin(), e = constraints.end();
+
+    for(; it!=e; it++) {
+        Expr* ex = dyn_cast<Expr>((*it).get());
+        fs << *ex;
+        fs << "\n";
+    }
+
+    fs.close();
+    return 1;
+}
+//#endif
 

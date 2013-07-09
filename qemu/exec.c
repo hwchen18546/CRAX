@@ -1671,6 +1671,10 @@ void cpu_reset_interrupt(CPUState *env, int mask)
 
 void cpu_exit(CPUState *env)
 {
+#ifdef __MHHUANG_DISABLE_TIMER_INTERRUPT__
+    return;
+#endif
+
     env->exit_request = 1;
     cpu_unlink_tb(env);
 }

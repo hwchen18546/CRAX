@@ -4331,6 +4331,19 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         break;
 
     }
+
+#ifdef __MHHUANG_TRACE_POINT__
+    case 0x13e: /* Trace point add by mhhuang */
+    {
+#ifdef CONFIG_S2E
+        s2e_tcg_emit_custom_instruction(g_s2e, (uint64_t)__MHHUANG_MODE_CALL_FROM_GUEST__);
+#else
+        gen_helper_mhhuang_trace_point(cpu_env, tcg_const_i32(__MHHUANG_MODE_CALL_FROM_GUEST__));
+#endif
+        break;
+    }
+#endif
+
     case 0x0f:
         /**************************/
         /* extended op code */
@@ -4743,6 +4756,9 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
             gen_inc(s, ot, opreg, -1);
             break;
         case 2: /* call Ev */
+#if defined(__MHHUANG_PRINT_EXECUTION__) && !defined(CONFIG_S2E)
+            //gen_helper_mhhuang_trace_point(cpu_env, tcg_const_i32(__MHHUANG_MODE_CALL__));
+#endif
             /* XXX: optimize if memory (no 'and' is necessary) */
             SET_TB_TYPE(TB_CALL_IND);
             if (s->dflag == 0)
@@ -4754,6 +4770,9 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
             gen_eob(s);
             break;
         case 3: /* lcall Ev */
+#if defined(__MHHUANG_PRINT_EXECUTION__) && !defined(CONFIG_S2E)
+            //gen_helper_mhhuang_trace_point(cpu_env, tcg_const_i32(__MHHUANG_MODE_CALL__));
+#endif
             SET_TB_TYPE(TB_CALL_IND);
 
             gen_op_ld_T1_A0(ot + s->mem_index);
@@ -6315,6 +6334,13 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         gen_eob(s);
         break;
     case 0xc3: /* ret */
+#if defined(__MHHUANG_TRACE_POINT__)
+#ifdef CONFIG_S2E
+        s2e_tcg_emit_custom_instruction(g_s2e, (uint64_t)__MHHUANG_MODE_CALL_FROM_GUEST__);
+#else
+        gen_helper_mhhuang_trace_point(cpu_env, tcg_const_i32(__MHHUANG_MODE_CALL_FROM_GUEST__));
+#endif
+#endif
         SET_TB_TYPE(TB_RET);
         s2e_on_translate_jump_start(g_s2e, g_s2e_state, s->tb, s->pc, JT_RET);
         gen_pop_T0(s);
@@ -6385,6 +6411,9 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         break;
     case 0xe8: /* call im */
         {
+#if defined(__MHHUANG_PRINT_EXECUTION__) && !defined(CONFIG_S2E)
+            //gen_helper_mhhuang_trace_point(cpu_env, tcg_const_i32(__MHHUANG_MODE_CALL__));
+#endif
             SET_TB_TYPE(TB_CALL);
 
             if (dflag)
@@ -6404,6 +6433,9 @@ static target_ulong disas_insn(DisasContext *s, target_ulong pc_start)
         break;
     case 0x9a: /* lcall im */
         {
+#if defined(__MHHUANG_PRINT_EXECUTION__) && !defined(CONFIG_S2E)
+            //gen_helper_mhhuang_trace_point(cpu_env, tcg_const_i32(__MHHUANG_MODE_CALL__));
+#endif
             unsigned int selector, offset;
 
             SET_TB_TYPE(TB_CALL);
@@ -7977,6 +8009,17 @@ static inline void gen_intermediate_code_internal(CPUState *env,
 
     tcg_gen_movi_i64(cpu_tmp1_i64, (uint64_t) tb);
     tcg_gen_st_i64(cpu_tmp1_i64, cpu_env, offsetof(CPUState, s2e_current_tb));
+
+#ifdef __MHHUANG_S2E_TRACE_EXEC__
+    s2e_tcg_emit_custom_instruction(g_s2e, (uint64_t)__MHHUANG_MODE_ENTER_TB__);
+#endif
+
+#endif
+
+#if defined(__MHHUANG_PRINT_EXECUTION__) && !defined(CONFIG_S2E)
+    tcg_gen_movi_i64(cpu_tmp1_i64, (uint64_t) tb);
+    tcg_gen_st_i64(cpu_tmp1_i64, cpu_env, offsetof(CPUState, s2e_current_tb));
+    gen_helper_mhhuang_trace_point(cpu_env, tcg_const_i32(__MHHUANG_MODE_PRINT_EIP__));
 #endif
 
     gen_icount_start();
@@ -8015,6 +8058,10 @@ static inline void gen_intermediate_code_internal(CPUState *env,
         dc->nextPc = -1;
 #endif
         new_pc_ptr = disas_insn(dc, pc_ptr);
+#if defined(__MHHUANG_PRINT_EXECUTION__) && !defined(CONFIG_S2E)
+        /* -mhhuang- This is used to separate the corresponding translated code of each instruction */
+        gen_helper_mhhuang_trace_point(cpu_env, tcg_const_i32(__MHHUANG_MODE_DO_NOTHING__));
+#endif
 #ifdef CONFIG_S2E
         if (!dc->is_jmp) {
             //Allow proper pc update for onTranslateInstruction events
@@ -8123,3 +8170,4 @@ void gen_pc_load(CPUState *env, TranslationBlock *tb,
     if (cc_op != CC_OP_DYNAMIC)
         WR_cpu(env, cc_op, cc_op);
 }
+

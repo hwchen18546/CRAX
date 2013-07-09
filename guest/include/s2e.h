@@ -124,54 +124,18 @@ static inline unsigned s2e_get_path_id(void)
 }
 
 /** Fill buffer with unconstrained symbolic values. */
-static inline void s2e_make_symbolic(void* buf, int size, const char* name, int knownLength)
+static inline void s2e_make_symbolic(void* buf, int size, const char* name)
 {
     __asm__ __volatile__(
-	"pushl %%ebx\n"
-	"movl %%esi, %%ebx\n"
+        "pushl %%ebx\n"
+        "movl %%edx, %%ebx\n"
         ".byte 0x0f, 0x3f\n"
         ".byte 0x00, 0x03, 0x00, 0x00\n"
         ".byte 0x00, 0x00, 0x00, 0x00\n"
-	"popl %%ebx\n"
-        : : "a" (buf), "S" (size), "c" (name), "d" (knownLength) : "memory"
+        "popl %%ebx\n"
+        : : "a" (buf), "d" (size), "c" (name) : "memory"
     );
 }
-
-/*
-inline void make_stdin_symbolic(int size)
-{
-  #include <malloc.h> 
-  char *p;
-
-  do {
-   p = (char*)malloc(1024);
-   //if (p == NULL)
-     //return (EOF);
-  } while (0);
-
-
-  stdin->_flags2 |= 16;
-  stdin->_IO_buf_base = p;
-  stdin->_IO_buf_end = p+1024;
-  //stdin->_flags |= 1;
-
-  stdin->_IO_read_ptr = stdin->_IO_write_ptr;
-  stdin->_IO_write_base = stdin->_IO_write_ptr = stdin->_IO_write_end = stdin->_IO_read_ptr;
-
-  stdin->_IO_read_base = stdin->_IO_read_ptr = stdin->_IO_buf_base;
-  stdin->_IO_read_end = stdin->_IO_buf_base + size;
-  stdin->_IO_buf_end = stdin->_IO_read_end ;
-  // *(stdin->_IO_read_ptr + 3) = '\n';
-  //strcpy(stdin->_IO_read_ptr + 2, "\n");
-  *(stdin->_IO_read_end + 1) = EOF;
-
-  stdin->_flags |= 0x200;
-
-  stdin->_mode = -1;
-
-  s2e_make_symbolic(stdin->_IO_read_ptr, size, "stdin", 0);
-}
-*/
 
 /** Concretize the expression. */
 static inline void s2e_concretize(void* buf, int size)
@@ -200,21 +164,6 @@ static inline void s2e_get_example(void* buf, int size)
         : : "a" (buf), "d" (size) : "memory"
     );
 }
-
-/*
-static inline void s2e_symbolic(void* buf, int size)
-{
-    __asm__ __volatile__(
-	"pushl %%ebx\n"
-	"movl %%edx, %%ebx\n"
-        ".byte 0x0f, 0x3f\n"
-        ".byte 0x00, 0x05, 0x00, 0x00\n"
-        ".byte 0x00, 0x00, 0x00, 0x00\n"
-	"popl %%ebx\n"
-        : : "a" (buf), "d" (size) : "memory"
-    );
-}
-*/
 
 /** Terminate current state. */
 static inline void s2e_kill_state(int status, const char* message)
@@ -385,4 +334,170 @@ static inline void s2e_disable_symbolic_execution()
     );
 }
 
+/* Check whether sym argument can be invalid value */
+#define SYM_ARG_MALLOC  1
+#define SYM_ARG_PRINTF  2
+#define SYM_ARG_SYSLOG  3
+static inline int mhhuang_check_sym_arg(const void* buf, int size, int type)
+{
+    int vulnerable;
+    __asm__ __volatile__(
+        "pushl %%ebx\n"
+        "movl %%esi, %%ebx\n"
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x04, 0x04, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+        "popl %%ebx\n"
+        : "=a" (vulnerable)                             /* Output registers */
+        : "a" (0), "S" (buf), "c" (size), "d" (type)    /* Input registers */
+    );
+    return vulnerable;
+}
+
+static inline int mhhuang_state_fork() {
+     int childID;
+    __asm__ __volatile__(
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x04, 0x0b, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+        : "=a" (childID)  : "a" (1)
+    );
+    return childID;
+}
+
+static inline int mhhuang_state_wait() {
+    int status;
+    __asm__ __volatile__(
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x04, 0x0c, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+        : "=a" (status)  : "a" (1)
+    );
+    return status;
+}
+
+#define EVENT_WRITE     0
+#define EVENT_SYM_EIP   1
+static inline void mhhuang_register_true_terminate(int eventID, int eventPara) {
+     __asm__ __volatile__(
+        "pushl %%ebx\n"
+        "movl %%edx, %%ebx\n"
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x04, 0x0d, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+        "popl %%ebx\n"
+        : /* Output registers */
+        : "a" (eventID), "d" (eventPara)    /* Input registers */
+    );
+}
+
+static inline void mhhuang_on_corrupt_fmt(void *fmt, int dollarOffset, int wordOffset) {
+    __asm__ __volatile__(
+        "pushl %%ebx\n"
+        "movl %%edx, %%ebx\n"
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x04, 0x0e, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+        "popl %%ebx\n"
+        :
+        : "a" (fmt), "d" (dollarOffset), "c" (wordOffset)
+    );
+}
+
+static inline void mhhuang_declare_input_range(void *addr, int size) {
+    __asm__ __volatile__(
+        "pushl %%ebx\n"
+        "movl %%edx, %%ebx\n"
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x04, 0x05, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+        "popl %%ebx\n"
+        :
+        : "a" (addr), "d" (size)
+    );
+}
+
+static inline int mhhuang_get_conf_symbolic_offset() {
+    int symOffset;
+    __asm__ __volatile__(
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x04, 0x0f, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+        : "=a" (symOffset)  : "a" (0)
+    );
+    return symOffset;
+}
+
+static inline int mhhuang_get_conf_symbolic_size() {
+    int symSize;
+    __asm__ __volatile__(
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x04, 0x10, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+        : "=a" (symSize)  : "a" (0)
+    );
+    return symSize;
+}
+
+static inline int mhhuang_get_conf_symbolic_eip_offset() {
+    int symEIPOffset;
+    __asm__ __volatile__(
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x04, 0x11, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+        : "=a" (symEIPOffset)  : "a" (0)
+    );
+    return symEIPOffset;
+}
+
+static inline int mhhuang_get_conf_symbolic_eip_size() {
+    int symEIPSize;
+    __asm__ __volatile__(
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x04, 0x12, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+        : "=a" (symEIPSize)  : "a" (0)
+    );
+    return symEIPSize;
+}
+
+static inline int mhhuang_get_conf_symbolic_jmp_offset() {
+    int symJmpOffset;
+    __asm__ __volatile__(
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x04, 0x13, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+        : "=a" (symJmpOffset)  : "a" (0)
+    );
+    return symJmpOffset;
+}
+
+static inline int mhhuang_get_conf_symbolic_jmp_size() {
+    int symJmpSize;
+    __asm__ __volatile__(
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x04, 0x14, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+        : "=a" (symJmpSize)  : "a" (0)
+    );
+    return symJmpSize;
+}
+
+static inline void mhhuang_enable_symbolic_execution()
+{
+    __asm__ __volatile__(
+        ".byte 0x0f, 0x3f\n"
+        ".byte 0x00, 0x04, 0x15, 0x00\n"
+        ".byte 0x00, 0x00, 0x00, 0x00\n"
+    );
+}
+
+static inline void mhhuang_trace_point()
+{
+    __asm__ __volatile__(
+       ".byte 0x0f, 0x3e\n"
+    );
+}
+
 #define s2e_assert(expression) _s2e_assert(expression, "Assertion failed: "  #expression)
+

@@ -21,20 +21,56 @@ namespace klee {
 class ExprVisitor;
   
 class ConstraintManager {
+private:
+  bool needReplaceByPermanentCons;
+  bool inConcolicEvalStage;
+  bool inPermanentEvalStage;
+#ifdef __MHHUANG_REDUCE_SIMPLIFY_EXPR__
+  bool inEmptyEvalStage;
+#endif
+
 public:
   typedef std::vector< ref<Expr> > constraints_ty;
   typedef constraints_ty::iterator iterator;
   typedef constraints_ty::const_iterator const_iterator;
 
-
-  ConstraintManager():/*concolic_constraints(ConstantExpr::create(0x1,Expr::Bool)),*/noZero_constraints(ConstantExpr::create(0x1,Expr::Bool)) {}
+  ConstraintManager()
+  {
+      needReplaceByPermanentCons = false;
+      inConcolicEvalStage = false;
+      inPermanentEvalStage = false;
+#ifdef __MHHUANG_REDUCE_SIMPLIFY_EXPR__
+      inEmptyEvalStage = false;
+#endif
+  }
 
   // create from constraints with no optimization
   explicit
   ConstraintManager(const std::vector< ref<Expr> > &_constraints) :
-    constraints(_constraints)/*,concolic_constraints(ConstantExpr::create(0x1,Expr::Bool))*/, noZero_constraints(ConstantExpr::create(0x1,Expr::Bool)) {}
+      constraints(_constraints),
+      tempConstraints(_constraints)
+  {
+      needReplaceByPermanentCons = false;
+      inConcolicEvalStage = false;
+      inPermanentEvalStage = false;
+#ifdef __MHHUANG_REDUCE_SIMPLIFY_EXPR__
+      inEmptyEvalStage = false;
+#endif
+  }
 
-  ConstraintManager(const ConstraintManager &cs) : constraints(cs.constraints),concolic_constraints(cs.concolic_constraints), noZero_constraints(cs.noZero_constraints) {}
+  ConstraintManager(const ConstraintManager &cs) : 
+      constraints(cs.constraints),
+      concolicConstraints(cs.concolicConstraints),
+      tempConstraints(cs.tempConstraints),
+      permanentConstraints(cs.permanentConstraints)
+  {
+      needReplaceByPermanentCons = cs.needReplaceByPermanentCons;
+      inConcolicEvalStage = cs.inConcolicEvalStage;
+      inPermanentEvalStage = cs.inPermanentEvalStage;
+#ifdef __MHHUANG_REDUCE_SIMPLIFY_EXPR__
+      inEmptyEvalStage = cs.inEmptyEvalStage;
+#endif
+  }
 
   typedef std::vector< ref<Expr> >::const_iterator constraint_iterator;
 
@@ -44,120 +80,94 @@ public:
 
   ref<Expr> simplifyExpr(ref<Expr> e) const;
 
-  void addConstraint(ref<Expr> e); // type:1(conoclic), type:2(all)
-  
+  void cAddConstraint(ref<Expr> e);
+ 
   bool empty() const {
+    assert(readyToUse());
     return constraints.empty();
   }
+
   ref<Expr> back() const {
+    assert(readyToUse());
     return constraints.back();
   }
+
   constraint_iterator begin() const {
+    assert(readyToUse());
     return constraints.begin();
   }
+
   constraint_iterator end() const {
+    assert(readyToUse());
     return constraints.end();
   }
+
   size_t size() const {
+    assert(readyToUse());
     return constraints.size();
   }
 
   void pop_back()
   {
+    assert(readyToUse());
     if(!empty())
       constraints.pop_back();
   }
 
   iterator erase(int num)
   {
+    assert(readyToUse());
     return constraints.erase(constraints.begin(), constraints.begin()+num);
   }
-/*
-  void setConcolicSize(uint32_t num)
+
+  void addConcolicConstraint(ref<Expr> e)
   {
-    concolicSize = num;
+    concolicConstraints.push_back(e);
   }
 
-  uint32_t getConcolicSize()
-  {
-    return concolicSize;
-  }
-*/  
-  void addConcolicConstraints(ref<Expr> e)
-  {
-    concolic_constraints.push_back(e);
-    //concolic_constraints = AndExpr::create(concolic_constraints, e);
+  void addPermanentConstraintAndClearTempConstraints(ref<Expr> e);
+
+  void addTempConstraint(ref<Expr> e);
+  void clearTempConstraints();
+  std::vector<ref<Expr> > getTempConstraints();
+  void setTempConstraints(std::vector<ref<Expr> > tempCons);
+
+  void startSymbolicEvaluate();
+  void endSymbolicEvaluate();
+  void startConcolicEvaluate();
+  void endConcolicEvaluate();
+  void startPermanentEvaluate();
+  void endPermanentEvaluate();
+#ifdef __MHHUANG_REDUCE_SIMPLIFY_EXPR__
+  void startEmptyEvaluate();
+  void endEmptyEvaluate();
+#endif
+
+  bool readyToUse() const { 
+      return !needReplaceByPermanentCons || 
+      inConcolicEvalStage ||
+#ifdef __MHHUANG_REDUCE_SIMPLIFY_EXPR__
+      inEmptyEvalStage ||
+#endif
+      inPermanentEvalStage; 
   }
 
-  void addNoZeroConstraints(ref<Expr> e)
-  {
-    noZero_constraints = AndExpr::create(noZero_constraints, e);
-  }
-
-  ref<Expr> getConcolicConstraints()
-  {
-    ref<Expr> temp = ConstantExpr::create(0x1,Expr::Bool);
-
-    std::vector< ref<Expr> >::iterator it;
-    for(it=concolic_constraints.begin() ; it!=concolic_constraints.end() ; it++)
-    {
-      temp = AndExpr::create(temp, *it);
-    }
-  
-    return temp;
-    //return concolic_constraints;
-  }
-
-  ref<Expr> getNoZeroConstraints()
-  {
-    return noZero_constraints;
-  }
-
-  std::vector< ref<Expr> > getConstraints()
-  {
-    return constraints;
-  }
-/*
-  std::vector< ref<Expr> > getConcolicVector()
-  {
-    return concolic_constraints;
-  }
-*/
   bool operator==(const ConstraintManager &other) const {
     return constraints == other.constraints;
   }
-/*
-  void backupConstraints()
-  {
-    constraints_backup.assign(constraints.begin(), constraints.end());
-  }
 
-  void restoreConstraints()
-  {
-    //constraints.assign(constraints_backup.begin(), constraints_backup.end());
-    constraints.swap(constraints_backup);
-  }
-*/
-  void swapConstraints()
-  {
-    constraints.swap(concolic_constraints);
-  }
+  /* Added by mhhuang */
+  int saveAllConcolicConstraints();
+  int saveAllConstraints(int id = 0);
 
-  bool isConcolicEmpty()
-  {
-    return concolic_constraints.empty();
-  }
-  
 private:
-//public:
-  std::vector< ref<Expr> > constraints;
-  //std::vector< ref<Expr> > constraints_backup;
-public:
-  std::vector< ref<Expr> > concolic_constraints;
-  //std::vector< ref<Expr> > all_constraints;
-  //ref<Expr> concolic_constraints;
-  ref<Expr> noZero_constraints;
-  //uint32_t concolicSize;
+  std::vector<ref<Expr> > constraints;
+  std::vector<ref<Expr> > concolicConstraints;
+  std::vector<ref<Expr> > tempConstraints;
+  std::vector<ref<Expr> > permanentConstraints;
+#ifdef __MHHUANG_REDUCE_SIMPLIFY_EXPR__
+  std::vector<ref<Expr> > emptyConstraints;
+#endif
 
   // returns true iff the constraints were modified
   bool rewriteConstraints(ExprVisitor &visitor);

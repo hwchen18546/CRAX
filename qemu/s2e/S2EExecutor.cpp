@@ -1,4 +1,4 @@
-/*
+ /*
  * S2E Selective Symbolic Execution Framework
  *
  * Copyright (c) 2010, Dependable Systems Laboratory, EPFL
@@ -55,7 +55,6 @@ uint64_t helper_do_interrupt(int intno, int is_int, int error_code,
                   target_ulong next_eip, int is_hw);
 uint64_t helper_set_cc_op_eflags(void);
 }
-    int kkk = 0;
 #include <malloc.h>
 
 #include "S2EExecutor.h"
@@ -113,6 +112,10 @@ uint64_t helper_set_cc_op_eflags(void);
 //#define S2E_DEBUG_INSTRUCTIONS
 //#define S2E_TRACE_EFLAGS
 //#define FORCE_CONCRETIZATION
+
+#ifdef __MHHUANG_SEND_PID__
+extern uint64_t AppPID;
+#endif
 
 using namespace std;
 using namespace llvm;
@@ -334,12 +337,10 @@ void S2EHandler::processTestCase(const klee::ExecutionState &state,
     }
 }
 
-void S2EHandler::handlerCorruptEip(klee::ExecutionState &state, klee::ref<klee::Expr> value, klee::ref<klee::Expr> target)
+void S2EHandler::handlerCorruptReg(klee::ExecutionState &state, klee::ref<klee::Expr> value, klee::ref<klee::Expr> target)
 {
-  S2EExecutionState *s = dynamic_cast<S2EExecutionState *>(&state);
-  //m_s2e->getWarningsStream(s) << "[*] Eip is courrupted. vaule: " << value << std::endl;
-  m_s2e->getCorePlugin()->onCorruptEip.emit(s, value, target, 1);
-  //s2e_on_corrput_eip(s, value, target);
+    S2EExecutionState *s = dynamic_cast<S2EExecutionState *>(&state);
+    m_s2e->getCorePlugin()->onCorruptReg.emit(s, value, target);
 }
 
 void S2EExecutor::handlerTraceMemoryAccess(Executor* executor,
@@ -439,12 +440,9 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
     Expr::Width width = expr->getWidth();
     // XXX: this might be expensive...
 
-    //expr = klee::AndExpr::create(expr, state->constraints.getConcolicConstraints());
-
     expr = s2eExecutor->simplifyExpr(*state, expr);
     expr = state->constraints.simplifyExpr(expr);
 
-    //g_s2e->getDebugStream(s2eState) << "args[0] = " << expr << " args[1] = " << min << " args[2] = " << max << " args[3] = " << args[3] << std::endl;
     if(isa<klee::ConstantExpr>(expr)) {
 #ifndef NDEBUG
         uint64_t value = cast<klee::ConstantExpr>(expr)->getZExtValue();
@@ -453,80 +451,22 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
         s2eExecutor->bindLocal(target, *state, expr);
         return;
     }
- 
-   uint64_t isWrite = cast<klee::ConstantExpr>(args[3])->getZExtValue();
-   //uint64_t data = cast<klee::ConstantExpr>(args[4])->getZExtValue();
-   //if(isWrite == 1 && !isa<klee::ConstantExpr>(args[4]))
-   //{
-     //s2eExecutor->m_s2e->getCorePlugin()->onPortAccess.emit(
-       // s2eState, expr, value, isWrite);            
-//g_s2e->getWarningsStream(s2eState) << "arg4: " << args[4] <<" isa: " << isa<klee::ConstantExpr>(args[4]) << std::endl;
-     //S2EHandler::handlerCorruptEip(*state, expr, value); 
-    s2eExecutor->m_s2e->getCorePlugin()->onCorruptEip.emit(s2eState, args[4], expr, isWrite);
-     //g_s2e->getDebugStream(s2eState) << expr->getKid(0)->getKid(1)->getKid(0)->getWidth()<< std::endl;
-   //}
-   //g_s2e->getExecutor()->terminateStateEarly(*s2eState,"forkAndConcretize"); 
+
+    //uint64_t isWrite = cast<klee::ConstantExpr>(args[3])->getZExtValue();
+    //s2eExecutor->m_s2e->getCorePlugin()->onCorruptEip.emit(s2eState, args[4], expr, isWrite);
     g_s2e->getDebugStream(s2eState) << "forkAndConcretize(" << expr << ")" << std::endl;
  
-    //s2eState->disableSymbolicExecution();
-
-    //klee::ConstraintManager cm(state->constraints) ;
-/*
-    std::vector< ref<Expr> >::const_iterator it = state->constraints.begin();
-    for(; it != s2eState->constraints.end() ;it++)                              
-    {                                                                        
-      g_s2e->getWarningsStream(s2eState) << "constraint : " << *it << std::endl;
-    }                                                                        
-*/
-
-    bool swapConcolic = false;
-    if(g_s2e->getExecutor()->getConcolicMode())
-    {
-      //s2eExecutor->getSolver()->mayBeTrue(Query(state->constraints, state->constraints.getConcolicConstraints()), swapConcolic);
-      //g_s2e->getWarningsStream(s2eState) << "RES: " << swapConcolic << std::endl;
-    
-      //if(swapConcolic)
-        // cm.addConstraint(state->constraints.getConcolicConstraints());
-      //if(swapConcolic)
-        state->constraints.swapConstraints();
-/*
-      else
-      {
-        std::vector< klee::ref<klee::Expr> >::iterator it;                                                        
-                                                                                                          
-        for(it=state->constraints.concolic_constraints.begin() ; it!=state->constraints.concolic_constraints.end() ; it++)
-        {                                                                                                         
-          bool rr;                                                                                                
-          g_s2e->getExecutor()->getSolver()->mayBeTrue(klee::Query(state->constraints, *it), rr);                     
-          if(!rr)                                                                                                 
-          {                                                                                                       
-            state->constraints.concolic_constraints.erase(it);                                                        
-            it--;                                                                                                 
-            //break;                                                                                              
-          }                                                                                                       
-        }                                                                                                         
-
-      }
-*/
-    }
-      //cm.addConstraint(state->constraints.getConcolicConstraints());
-
     if (state->forkDisabled) {
-    //if (1) {
         //Simply pick one possible value and continue
         ref<klee::ConstantExpr> value;
-        bool success = s2eExecutor->getSolver()->getValue(
-                Query(state->constraints, expr), value);
+        bool success = s2eExecutor->getTimingSolver()->getValue(*state, expr, value);
     
-        if(g_s2e->getExecutor()->getConcolicMode())
-          state->constraints.swapConstraints();
-
         if (success) {
             g_s2e->getDebugStream(s2eState) << "Chosen " << value << std::endl;
             ref<Expr> eqCond = EqExpr::create(expr, value);
             state->addConstraint(eqCond);
+
             s2eExecutor->bindLocal(target, *state, value);
-            //g_s2e->getDebugStream(s2eState) << "target: " <<  target << std::endl;
         }else {
             g_s2e->getDebugStream(s2eState) << "Failed to find a value. Leaving unconstrained." << std::endl;
             s2eExecutor->bindLocal(target, *state, expr);
@@ -534,21 +474,30 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
         return;
     }
 
-    //cm.erase(cm.concolicSize);
-    //cm.concolicSize = 0;
+#ifdef __MHHUANG_CONCRETIZE_POINTER__
+    //Simply pick one possible value and continue
+    ref<klee::ConstantExpr> value;
+    bool success = s2eExecutor->getTimingSolver()->getValue(*state, expr, value);
+
+    if (success) {
+        g_s2e->getDebugStream(s2eState) << "Chosen " << value << std::endl;
+        /* This will restrict the value of some input */
+        ref<Expr> eqCond = EqExpr::create(expr, value);
+        state->addConstraint(eqCond);
+        s2eExecutor->bindLocal(target, *state, value);
+    }else {
+        g_s2e->getDebugStream(s2eState) << "Failed to find a value. Leaving unconstrained." << std::endl;
+        s2eExecutor->bindLocal(target, *state, expr);
+    }
+    return;
+#else   // __MHHUANG_CONCRETIZE_POINTER__
     // go starting from min
-    Query query(state->constraints, expr);
     uint64_t step = 1;
     std::vector< uint64_t > values;
     std::vector< ref<Expr> > conditions;
     
     while(min <= max) {
         if(conditions.size() >= MaxForksOnConcretize) {
-            //s2eState->addConstraint( klee::EqExpr::create(s2eState->readMemory8(0xbffec700), klee::ConstantExpr::alloc(0xff,klee::Expr::Int8)));
-            //g_s2e->getDebugStream() << state->readMemory8(0xbffec700);
-            //s2eState->addConstraint( klee::EqExpr::create(s2eState->getEax(), klee::ConstantExpr::alloc(0x123,klee::Expr::Int32)));
-            //s2eState->dumpX86State(g_s2e->getDebugStream());
-            //g_s2e->getDebugStream()<<"min: " << min << " Max: " << max << std::endl;
             s2eExecutor->m_s2e->getWarningsStream(s2eState)
                 << "Dropping states with constraint \n"
                 << UleExpr::create(expr, klee::ConstantExpr::create(min, width))
@@ -560,17 +509,13 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
         ref<Expr> eqCond = EqExpr::create(expr, klee::ConstantExpr::create(min, width));
         bool res = false;
 
-        bool success = s2eExecutor->getSolver()->mayBeTrue(query.withExpr(eqCond), res);
+        bool success = s2eExecutor->getTimingSolver()->mayBeTrue(*state, eqCond, res);
         assert(success && "FIXME: Unhandled solver failure");
 
-//g_s2e->getWarningsStream(s2eState) << "aaaaaaaaaaaaaaaaaaaaaaa"<< std::endl;
         if(res) {
-            /*s2eExecutor->m_s2e->getWarningsStream(s2eState)*/g_s2e->getWarningsStream(s2eState) << "value = " << std::hex << min << std::endl;
-            //s2eExecutor->m_s2e->getWarningsStream(s2eState) << "max = " << max << std::endl;
-            //s2eExecutor->m_s2e->getWarningsStream(s2eState) << "step = " << step << std::endl;
+            g_s2e->getWarningsStream(s2eState) << "value = " << std::hex << min << std::endl;
             values.push_back(min);
             conditions.push_back(eqCond);
-//break;
         }
 
         if(min == max) {
@@ -586,13 +531,13 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
                 min += 1; continue;
             } else {
                 bool success =
-                    s2eExecutor->getSolver()->mayBeTrue(
-                        query.withExpr(
+                    s2eExecutor->getTimingSolver()->mayBeTrue(
+                            *state,
                             AndExpr::create(
                                 UgeExpr::create(expr,
                                     klee::ConstantExpr::create(min+1, width)),
                                 UleExpr::create(expr,
-                                    klee::ConstantExpr::create(min+step-1, width)))),
+                                    klee::ConstantExpr::create(min+step-1, width))),
                         res);
                 assert(success && "FIXME: Unhandled solver failure");
                 if(res == false) {
@@ -612,13 +557,13 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
         while(lo < hi) {
             bool res = false;
             bool success =
-                s2eExecutor->getSolver()->mayBeTrue(
-                    query.withExpr(
+                s2eExecutor->getTimingSolver()->mayBeTrue(
+                        *state,
                         AndExpr::create(
                             UgeExpr::create(expr,
                                 klee::ConstantExpr::create(lo, width)),
                             UleExpr::create(expr,
-                                klee::ConstantExpr::create(mid, width)))),
+                                klee::ConstantExpr::create(mid, width))),
                     res);
 
             assert(success && "FIXME: Unhandled solver failure");
@@ -641,24 +586,350 @@ void S2EExecutor::handleForkAndConcretize(Executor* executor,
             step = max - min;
     }
 
-    if(g_s2e->getExecutor()->getConcolicMode())
-      state->constraints.swapConstraints();
-
     std::vector<ExecutionState *> branches;
     s2eExecutor->branch(*state, conditions, branches);
 
     for(uint64_t i=0; i<conditions.size(); i++) {
 #ifndef NDEBUG
         ref<klee::ConstantExpr> value;
-        bool success = s2eExecutor->getSolver()->getValue(
-                Query(branches[i]->constraints, expr), value);
+        bool success = s2eExecutor->getTimingSolver()->getValue(*(branches[i]), expr, value);
         assert(success && value->getZExtValue() == values[i]);
 #endif
         s2eExecutor->bindLocal(target, *branches[i],
                                klee::ConstantExpr::create(values[i], width));
     }
-
+#endif  // __MHHUANG_CONCRETIZE_POINTER__
 }
+
+#ifdef __MHHUANG_QEMU_S2E_WRAPPER__
+void S2EExecutor::handleMHQemuS2EWrapper(klee::Executor* executor,
+                                         klee::ExecutionState* state,
+                                         klee::KInstruction* target,
+                                         std::vector<klee::ref<klee::Expr> > &args) {
+    S2EExecutor* s2eExecutor = static_cast<S2EExecutor*>(executor);
+    S2EExecutionState* s2eState = static_cast<S2EExecutionState*>(state);
+
+    klee::ref<klee::Expr> actExpr = args[0];
+    klee::ConstantExpr *actCE = dyn_cast<klee::ConstantExpr>(actExpr);
+    assert(actCE && "Action is symbolic!");
+
+    uint32_t action = actCE->getZExtValue();
+    switch(action) {
+#ifdef __KS_MHHUANG_SYM_READ__
+        case ACTION_IS_SYMBOLIC: {
+            ref<Expr> expr = args[1];
+            expr = s2eExecutor->simplifyExpr(*state, expr);
+            expr = state->constraints.simplifyExpr(expr);
+
+            if(isa<klee::ConstantExpr>(expr)) {
+                s2eExecutor->bindLocal(target, *state, klee::ConstantExpr::create(0, klee::Expr::Int64));
+            }
+            else {
+                s2eExecutor->bindLocal(target, *state, klee::ConstantExpr::create(1, klee::Expr::Int64));
+            }
+            return;
+        }
+
+        /* If the address can point to valid memory cell, return a pseudo symbolc variable.
+           Otherwise, return constant -1 */
+        case ACTION_SYM_READ: {
+            klee::ref<klee::Expr> addrExpr = args[1];
+            klee::ConstantExpr *sizeCE = dyn_cast<klee::ConstantExpr>(args[2]);
+            assert(sizeCE);
+            uint8_t size = sizeCE->getZExtValue();
+
+            /* In concolic mode, check whether the concrete address is legal */
+            if(s2eState->isConcolicMode) {
+                if(checkAddrValidConcolic(executor, state, addrExpr, size) == false) {
+                    /* Access the concrete address will cause segmentation fault, this means
+                       the crash site is reached, so concolic explore is no longer needed */
+                    g_s2e->getWarningsStream(s2eState) << "Sym-read from invalid address, switch to symbolic mode" << std::endl;
+                    s2eState->isConcolicMode = false;
+                }
+            }
+
+            ValidAddrSet *validAddrSet = new ValidAddrSet(s2eState);
+
+#ifdef __MHHUANG_DISCARD_KERNEL__
+            validAddrSet->removeInterval(KERNEL_SPACE, 0xffffffff);
+#endif
+
+            validAddrSet->adjustRange(size);
+
+            /* Not concolic mode, still have to check whether the symbolic address can
+               point to valid memory cell */
+            if(!s2eState->isConcolicMode) {
+                /* -mhhuang-delete- */
+                std::cout << "[Find valid addr] " << std::hex << addrExpr << std::endl;
+                clock_t start = clock();
+
+                uint32_t addr = s2eState->getValue(*(s2eExecutor->solver),
+                        RestrictedVar(addrExpr, validAddrSet));
+
+                /* -mhhuang-delete- */
+                clock_t passed = clock()-start;
+                double seconds = ((double)passed)/CLOCKS_PER_SEC;
+                std::cout << "[Find valid addr] " << 
+                    std::setw(6) << std::setprecision(2) << std::fixed << seconds << " " <<
+                    "0x" << std::hex << std::setw(8) << std::setfill('0') << addr << std::endl; 
+
+                if(addr == 0) {
+                    delete validAddrSet;
+                    s2eExecutor->bindLocal(target, *state, 
+                            klee::ConstantExpr::create(-1, klee::Expr::Int64));
+                    return;
+                }
+            }
+
+            /* Determine the pseudo variable name */
+            static uint32_t Id = 0;
+            int depth = symbolicDereferenceDepth(executor, state, addrExpr)+1;
+            ostringstream oss;
+            oss << KS_PSEUDO_VAR_PREFIX << depth << "_" << Id++;
+           
+            /* Create pseudo variable */ 
+            vector<ref<Expr> > symb = s2eState->createSymbolicArray(size, oss.str());
+            g_s2e->getWarningsStream(s2eState) << "[SymRead] " << oss.str() << " from addr " << addrExpr << std::endl;
+
+            if(s2eState->isConcolicMode) {
+                ref<klee::ConstantExpr> addrCE = executor->toConstantSilent(*state, addrExpr);
+                uint32_t addr = addrCE->getZExtValue();
+
+                /* Add concolic constraint of the pseudo read */
+                for(int i=0; i<size; i++) {
+                    klee::ref<klee::Expr> valueExpr = s2eState->readMemory8(addr+i);
+                    klee::ref<klee::ConstantExpr> valueCE = dyn_cast<klee::ConstantExpr>(valueExpr);
+                    if(valueCE.isNull()) {
+                        g_s2e->getWarningsStream(s2eState) << "Sym-read touch symbolic data" << std::endl;
+                        valueCE = executor->toConstantSilent(*state, valueExpr);
+                    }
+
+                    state->constraints.addConcolicConstraint(klee::EqExpr::create(symb[i], valueCE));
+                }
+            }
+
+            ref<Expr> res(0);
+            for(int i=0; i<size; i++) {
+                res = i ? ConcatExpr::create(symb[i], res) : symb[i];
+            }
+
+            /* Create the SymDeref object, first find all symbolic blocks */
+            ValidAddrSet *symbolicSet = new ValidAddrSet(s2eState, true);
+
+#ifdef __MHHUANG_DISCARD_KERNEL__
+            symbolicSet->removeInterval(KERNEL_SPACE, 0xffffffff);
+#endif
+
+            symbolicSet->adjustSymbolicRange(size, *validAddrSet);
+            validAddrSet->substract(*symbolicSet);
+
+            /* Fork a meta state */
+            std::cout << "Forking metastate ..." << std::endl;
+            StatePair states = s2eExecutor->dummyFork(state, false);
+            S2EExecutionState *oldState = dynamic_cast<S2EExecutionState*>(states.first);
+            S2EExecutionState *newState = dynamic_cast<S2EExecutionState*>(states.second);
+            std::cout << "Forking metastate complete" << std::endl;
+
+            /* Create the SymDeref object and add it */
+            SymDeref *deref = new SymDeref(addrExpr, res, newState, symbolicSet, validAddrSet);
+            oldState->addSymDeref(deref);
+
+            res = ZExtExpr::create(res, klee::Expr::Int64);
+            s2eExecutor->bindLocal(target, *state, res);
+            return;
+        }
+
+        case ACTION_CONCRETIZE: {
+            ref<Expr> expr = args[1];
+            ref<klee::ConstantExpr> ce;
+
+            assert(s2eState->getValue(*(s2eExecutor->solver), expr, ce));
+            ref<Expr> cons = klee::EqExpr::create(expr, ce);
+            s2eState->addConstraint(cons);
+
+            ref<Expr> res = klee::ZExtExpr::create(ce, klee::Expr::Int64);
+            s2eExecutor->bindLocal(target, *state, res);
+            return;
+        }
+#endif
+#ifdef __KS_MHHUANG_SYM_READ__
+        case ACTION_TO_VALID_ADDR: {
+            klee::ConstantExpr *sizeCE = dyn_cast<klee::ConstantExpr>(args[2]);
+            assert(sizeCE);
+            uint8_t size = sizeCE->getZExtValue();
+
+            klee::ref<klee::Expr> addrExpr = args[1];
+
+            /* In concolic mode, check whether the concrete address is legal */
+            if(s2eState->isConcolicMode) {
+                if(checkAddrValidConcolic(executor, state, addrExpr, size) == false) {
+                    /* Access the concrete address will cause segmentation fault, this means
+                       the crash site is reached, so concolic explore is no longer needed */
+                    g_s2e->getWarningsStream(s2eState) << "Sym-write to invalid address, switch to symbolic mode" << std::endl;
+                    s2eState->isConcolicMode = false;
+                }
+                else {
+                    ref<klee::ConstantExpr> addrCE = executor->toConstantSilent(*state, addrExpr);
+                    s2eExecutor->bindLocal(target, *state, addrCE);
+                    return;
+                }
+            }
+
+            /* If we reach here, means we are not in concolic mode now */
+
+            /* -mhhuang-delete- */
+            //s2eState->constraints.saveAllConstraints();
+            //s2eState->m_asgnSpace.dumpAllAxises();
+
+            ValidAddrSet *validAddrSet = new ValidAddrSet(s2eState);
+
+#ifdef __MHHUANG_DISCARD_KERNEL__
+            /* Because this action is only used to find a valid write address, won't create new
+               SymDeref, so don't need to discard kernel space */
+            //validAddrSet->removeInterval(KERNEL_SPACE, 0xffffffff);
+#endif
+
+            validAddrSet->adjustRange(size);
+
+            /* -mhhuang-delete- */
+            std::cout << "[Find valid addr] " << std::hex << addrExpr << std::endl;
+            clock_t start = clock();
+
+            uint32_t addr = s2eState->getValue(*(s2eExecutor->solver),
+                RestrictedVar(addrExpr, validAddrSet));
+
+            /* -mhhuang-delete- */
+            clock_t passed = clock()-start;
+            double seconds = ((double)passed)/CLOCKS_PER_SEC;
+            std::cout << "[Find valid addr] " << 
+                std::setw(6) << std::setprecision(2) << std::fixed << seconds << " " <<
+                "0x" << std::hex << std::setw(8) << std::setfill('0') << addr << std::endl; 
+
+            delete validAddrSet;
+
+            s2eExecutor->bindLocal(target, *state, klee::ConstantExpr::create(addr, klee::Expr::Int64));
+            return;
+        }
+
+        case ACTION_SYM_WRITE: {
+            klee::ConstantExpr *sizeCE = dyn_cast<klee::ConstantExpr>(args[2]);
+            assert(sizeCE);
+            uint8_t size = sizeCE->getZExtValue();
+
+            klee::ref<klee::Expr> addrExpr = args[1];
+            klee::ref<klee::Expr> valueExpr = args[3];
+            addrExpr = s2eExecutor->simplifyExpr(*state, addrExpr);
+            addrExpr = state->constraints.simplifyExpr(addrExpr);
+            valueExpr = s2eExecutor->simplifyExpr(*state, valueExpr);
+            valueExpr = state->constraints.simplifyExpr(valueExpr);
+
+            /* -mhhuang-delete- */
+            //if(s2eState->isConcolicMode) {
+            //    klee::ref<klee::ConstantExpr> addrCE = s2eExecutor->toConstantSilent(*s2eState, addrExpr);
+            //    klee::ref<klee::ConstantExpr> valueCE = s2eExecutor->toConstantSilent(*s2eState, valueExpr);
+            //    uint32_t addr = addrCE->getZExtValue();
+            //    uint32_t value = valueCE->getZExtValue();
+            //}
+
+            if(!isa<klee::ConstantExpr>(valueExpr)) {
+                s2eExecutor->m_s2e->getCorePlugin()->onCorruptPtr.emit(s2eState, addrExpr, valueExpr);
+            }
+
+            break;
+        }
+
+        case ACTION_CONCRETIZE_TO: {
+            ref<Expr> expr = args[1];
+            ref<Expr> ce = args[2];
+
+            ref<Expr> cons = klee::EqExpr::create(expr, ce);
+            s2eState->addConstraint(cons);
+
+            ref<Expr> res = klee::ZExtExpr::create(ce, klee::Expr::Int64);
+            s2eExecutor->bindLocal(target, *state, res);
+            return;
+        }
+
+#endif
+    }
+
+    s2eExecutor->bindLocal(target, *state, klee::ConstantExpr::create(0, klee::Expr::Int64));
+}
+#endif
+
+#ifdef __MHHUANG_PRINT_SYM_PTR__
+bool S2EExecutor::isAddrValid(S2EExecutionState* state, uint32_t addr, uint8_t size) {
+    /* Check if addr ~ addr+size is all valid address */
+    for(int i=0; i<size; i++) {
+        uint64_t hostAddress = state->getHostAddress(addr+i);
+        if(hostAddress == (uint64_t) -1)
+            return false;
+    }
+
+    return true;
+}
+#endif
+
+#ifdef __KS_MHHUANG_SYM_READ__
+bool S2EExecutor::checkAddrValidConcolic(Executor* executor, 
+                                         ExecutionState* state,
+                                         ref<Expr> addrExpr,
+                                         uint8_t size) {
+    S2EExecutionState* s2eState = static_cast<S2EExecutionState*>(state);
+
+    /* Find the concrete value of addr */
+    ref<klee::ConstantExpr> addrCE = executor->toConstantSilent(*state, addrExpr);
+    uint32_t addr = addrCE->getZExtValue();
+
+    for(int i=0; i<size; i++) {
+        if(s2eState->getHostAddress(addr+i) == (uint64_t)-1) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+int S2EExecutor::symbolicDereferenceDepth(Executor* executor,
+                                          ExecutionState* state,
+                                          ref<Expr> addr) {
+    S2EExecutionState* s2eState = static_cast<S2EExecutionState*>(state);
+
+    int depth = 0;
+    if(ReadExpr *re = dyn_cast<ReadExpr>(addr)) {
+        std::string symName = re->updates.root->name;
+        if(symName.find(KS_PSEUDO_VAR_PREFIX, 0) != std::string::npos) {
+            depth = strtol(symName.c_str()+7, NULL, 10);
+        }
+    }
+    else if(!isa<klee::ConstantExpr>(addr)) {
+        int numKids = addr->getNumKids();
+        for(int i=0; i<numKids; i++) {
+            int curDepth = symbolicDereferenceDepth(executor, state, addr->getKid(i));
+            if(curDepth > depth) {
+                depth = curDepth;
+            }
+        }
+    }
+
+    return depth;
+}
+#endif
+
+#ifdef __KS_MHHUANG_STATE_FORK__
+void S2EExecutor::handleMHDecideTerminateSymbolic(Executor* executor,
+                                     ExecutionState* state,
+                                     klee::KInstruction* target,
+                                     std::vector< ref<Expr> > &args) {
+    S2EExecutor* s2eExecutor = static_cast<S2EExecutor*>(executor);
+    S2EExecutionState* s2eState = static_cast<S2EExecutionState*>(state);
+
+    ref<klee::ConstantExpr> ceEventID = executor->toConstantSilent(*state, args[0]);
+    ref<klee::ConstantExpr> ceEventPara = executor->toConstantSilent(*state, args[1]);
+    
+    s2eExecutor->decideTerminateConcrete(s2eState, ceEventID->getZExtValue(), ceEventPara->getZExtValue());
+}
+#endif
 
 S2EExecutor::S2EExecutor(S2E* s2e, TCGLLVMContext *tcgLLVMContext,
                     const InterpreterOptions &opts,
@@ -845,6 +1116,20 @@ S2EExecutor::S2EExecutor(S2E* s2e, TCGLLVMContext *tcgLLVMContext,
     assert(function);
     addSpecialFunctionHandler(function, handleForkAndConcretize);
 
+    /* Because only symbolic read will use the wrapper, if we don't define SYM_READ,
+       the mh_qemu_s2e_wrapper will be NULL and cause assertion fail */
+#if defined(__MHHUANG_QEMU_S2E_WRAPPER__) && defined(__KS_MHHUANG_SYM_READ__)
+    function = kmodule->module->getFunction("mh_qemu_s2e_wrapper");
+    assert(function);
+    addSpecialFunctionHandler(function, handleMHQemuS2EWrapper);
+#endif
+
+#ifdef __KS_MHHUANG_STATE_FORK__
+    function = kmodule->module->getFunction("mh_decide_terminate_symbolic");
+    assert(function);
+    addSpecialFunctionHandler(function, handleMHDecideTerminateSymbolic);
+#endif
+
     searcher = constructUserSearcher(*this);
 
     m_stateManager = NULL;
@@ -988,9 +1273,11 @@ void S2EExecutor::registerCpu(S2EExecutionState *initialState,
                       /* isReadOnly = */ false,
                       /* isUserSpecified = */ true,
                       /* isSharedConcrete = */ true);
-    initialState->eip =  ((uint8_t*)cpuEnv) + offsetof(CPUX86State,eip);
-    initialState->ebp =  ((uint8_t*)cpuEnv) + sizeof(target_ulong)*5;
-    initialState->esp =  ((uint8_t*)cpuEnv) + sizeof(target_ulong)*4;
+    initialState->eip =  (uint32_t*)(((uint8_t*)cpuEnv) + offsetof(CPUX86State,eip));
+    initialState->ebp =  (uint32_t*)(((uint8_t*)cpuEnv) + sizeof(target_ulong)*5);
+    initialState->esp =  (uint32_t*)(((uint8_t*)cpuEnv) + sizeof(target_ulong)*4);
+    initialState->cr3 =  (uint32_t*)(((uint8_t*)cpuEnv) + offsetof(CPUX86State, cr) + sizeof(target_ulong)*3);
+
     //std::cout << " eip: "<< initialState->eip << std::endl;
     initialState->m_cpuSystemState->setName("CpuSystemState");
 
@@ -1111,11 +1398,6 @@ bool S2EExecutor::isRamSharedConcrete(S2EExecutionState *state,
 void S2EExecutor::readRamConcreteCheck(S2EExecutionState *state,
                     uint64_t hostAddress, uint8_t* buf, uint64_t size)
 {
-  //if( 0x8048549<= state->getPc() && state->getPc() <= 0x804859e)
-     //m_s2e->getMessagesStream(state) << "pc: " << state->getPc() << " size: " << size << std::endl;
-//return;
-  // if(state->getPc() >= 0xc000000)
-  //   return;
     assert(state->m_active && state->m_runningConcrete);
     uint64_t page_offset = hostAddress & ~S2E_RAM_OBJECT_MASK;
     if(page_offset + size <= S2E_RAM_OBJECT_SIZE) {
@@ -1134,7 +1416,6 @@ void S2EExecutor::readRamConcreteCheck(S2EExecutionState *state,
                         << "Switching to KLEE executor at pc = "
                         << hexval(state->getPc()) <<  std::endl;
                }
-//printf("%x\n",&buf);
                 state->m_startSymbexAtPC = state->getPc();
                 // XXX: what about regs_to_env ?
                 longjmp(env->jmp_env, 1);
@@ -1164,58 +1445,19 @@ void S2EExecutor::readRamConcrete(S2EExecutionState *state,
 
         ObjectState *wos = NULL;
 
-        //klee::ExecutionState temp(state->constraints.getConstraints());
-
-//        ExecutionState temp(state->constraints.getConstraints());
-        //temp.addConstraint(state->constraints.getConcolicConstraints());
-        //std::cout << "size : " << size << std::endl;
-        //state->constraints.backupConstraints();
-        //state->addConstraint(state->constraints.getConcolicConstraints());
-        //ExecutionState *ptr=NULL;
-        //int i=0;
-
         for(uint64_t i=0; i<size; ++i) {
             if(!op.second->readConcrete8(page_offset+i, buf+i)) {
                 if(!wos) {
                     op.second = wos = state->addressSpace.getWriteable(
                                                     op.first, op.second);
                 }
-                //buf[i] = toConstant(*state, wos->read8(page_offset+i),
-                //       "memory access from concrete code")->getZExtValue(8);
-        /*std::cout << "backup start" << std::endl;
-        state->constraints.backupConstraints();
-        std::cout << "backup over" << std::endl;
-        addConstraint(*state, state->constraints.getConcolicConstraints());*/
-        //ExecutionState temp(state->constraints.getConstraints());
-        //temp.addConstraint(state->constraints.getConcolicConstraints());
-        //ExecutionState temp(state->constraints.getConstraints());
-//        if(i == 0)
-//        {
-//        temp.addConstraint(state->constraints.getConcolicConstraints());
-        //std::cout << "backup over" << std::endl;
-        //ptr = &temp;
-//        i = 1;
-//        }
-//state->constraints.swapConstraints();
 
                 buf[i] = toConstantSilent(*state, wos->read8(page_offset+i))->getZExtValue(8);
-                //ref<klee::ConstantExpr> gg = toConstantSilent(/**state*/temp, wos->read8(page_offset+i));
-                //buf[i] = gg->getZExtValue(8);
-//state->addConstraint(EqExpr::create(wos->read8(page_offset+i),gg )); 
                 state->concrete_byte.push_back((hostAddress & S2E_RAM_OBJECT_MASK) + page_offset + i);
-                //state->concrete_byte.push_back(make_pair((hostAddress & S2E_RAM_OBJECT_MASK) + page_offset + i, wos->read8(page_offset+i)));
-                //klee::ConstantExpr *CE = dyn_cast<klee::ConstantExpr>(buf[i]);
-                //buf[i] = (uint8_t) CE->getZExtValue(8);
-                //m_s2e->getDebugStream() << "page_offset+"<< i << " : " << std::hex << (hostAddress & S2E_RAM_OBJECT_MASK) + page_offset+i << " size: "<< size << " value : " << buf[i] << std::endl; 
                 wos->write8(page_offset+i, buf[i]);
 
-                //if(!state->m_symbexEnabled)
-                //wos->markByteSymbolic(page_offset+i);
-                //wos->setKnownSymbolic(page_offset+i);
-//state->constraints.swapConstraints();
             }
         }
-        //state->constraints.restoreConstraints();
     } else {
         /* Access spans multiple MemoryObject's */
         uint64_t size1 = S2E_RAM_OBJECT_SIZE - page_offset;
@@ -1644,41 +1886,75 @@ void S2EExecutor::prepareFunctionExecution(S2EExecutionState *state,
 
 inline void S2EExecutor::executeOneInstruction(S2EExecutionState *state)
 {
-
-//   if(state->getPc() == 0x080496e3)                    
-//{                                                   
-  //state->dumpStack(40,state->getSp());              
-//  state->dumpX86State( g_s2e->getWarningsStream() );
-                                                      
-//}                                                   
-
-    //int64_t start_clock = get_clock();
     cpu_disable_ticks();
 
     KInstruction *ki = state->pc;
 
-//    if(state->getPc() == 0x080496e5)// || state->getPc() == 0x080496e3)
-//{
-//state->dumpX86State( g_s2e->getWarningsStream() );
-//       m_s2e->getDebugStream(state) << *ki->inst << std::endl;
-//}
-    //S2EDebugInstructions = true; 
     if ( S2EDebugInstructions ) {
     m_s2e->getDebugStream(state) << "executing "
               << ki->inst->getParent()->getParent()->getNameStr()
               << ": " << *ki->inst << std::endl;
     }
 
-    stepInstruction(*state);
+    stepInstruction(*state);    /* Point state->pc to next KInstruction */
+
+#ifdef __MHHUANG_MEASURE_TIME__
+    if(state->lastCr3 != env->cr[3]) {
+        state->lastCr3 = env->cr[3];
+        state->currentProcStat = state->allProcStat.find(env->cr[3]);
+        if(state->currentProcStat == state->allProcStat.end()) {
+            state->allProcStat[env->cr[3]] = new ProcStat();
+            state->currentProcStat = state->allProcStat.find(env->cr[3]);
+        }
+        state->pCurProcStat = state->currentProcStat->second;
+        state->pHelperCC = state->pCurProcStat->helperCC;
+        state->lastStackSize = 0;
+    }
+
+    if(state->lastStackSize != state->stack.size()) {
+        state->lastStackSize = state->stack.size();
+        if(state->lastStackSize > 2) {
+            std::string fName = state->stack.back().kf->function->getNameStr();
+
+            std::map<std::string, klee::HelperStat*>::iterator hIt = state->pCurProcStat->allHelperStat.find(fName);
+            if(hIt == state->pCurProcStat->allHelperStat.end()) {
+                state->pCurProcStat->allHelperStat[fName] = new HelperStat();
+                hIt = state->pCurProcStat->allHelperStat.find(fName);
+                if(state->pCurProcStat->helperCC == NULL) {
+                    if(fName.compare("helper_cc_compute_all") == 0) {
+                        state->pCurProcStat->helperCC = hIt->second;
+                        state->pHelperCC = hIt->second;
+                    }
+                }
+            }
+            state->pCurHelperStat = hIt->second;
+            if(state->pCurHelperStat == state->pHelperCC && state->lastStackSize > 3) {
+                std::string fName = state->stack[state->lastStackSize-2].kf->function->getNameStr();
+                std::map<std::string, klee::HelperStat*>::iterator hIt = state->pCurProcStat->allHelperStat.find(fName);
+
+                assert(hIt != state->pCurProcStat->allHelperStat.end() && "xxx");
+
+                state->pHelperCCCaller = hIt->second;
+            }
+            else {
+                state->pHelperCCCaller = NULL;
+            }
+        }
+        else {
+            state->pCurHelperStat = NULL;
+            state->pHelperCCCaller = NULL;
+        }
+    }
+    static clock_t start = 0;
+    assert(start == 0 && "May longjmped in executeInstruction");
+    start = clock();
+#endif
 
     bool shouldExitCpu = false;
     try {
 
         executeInstruction(*state, ki);
 
-//Instruction *i = ki->inst;
-//if(i->getOpcode() == Instruction::Ret)
-//{m_s2e->getWarningsStream(state)<<"ddddddddddadadad"<<std::endl;}
 #ifdef S2E_TRACE_EFLAGS
         ref<Expr> efl = state->readCpuRegister(offsetof(CPUState, cc_src), klee::Expr::Int32);
         m_s2e->getDebugStream() << std::hex << state->getPc() << "  CC_SRC " << efl << std::endl;
@@ -1690,6 +1966,26 @@ inline void S2EExecutor::executeOneInstruction(S2EExecutionState *state)
         assert(addedStates.empty());
         shouldExitCpu = true;
     }
+
+#ifdef __MHHUANG_MEASURE_TIME__
+    clock_t passed = clock()-start;
+    start = 0;
+    state->pCurProcStat->tKlee += passed;
+    if(state->lastStackSize > 2) {
+        //assert(state->pCurHelperStat != NULL && "Something wrong with my llvm execution time tracking..\n");
+
+        state->pCurProcStat->tHelper += passed;
+        state->pCurHelperStat->tExec += passed;
+        if(state->pCurHelperStat == state->pHelperCC) {
+            if(state->pHelperCCCaller != NULL) {
+                state->pHelperCCCaller->tComputeCC += passed;
+            }
+            else {
+                state->pCurProcStat->tComputeCC += passed;
+            }
+        }
+    }
+#endif
 
     if (getMaxMemory()) {
       if ((stats::instructions & 0xFFFF) == 0) {
@@ -1735,9 +2031,6 @@ inline void S2EExecutor::executeOneInstruction(S2EExecutionState *state)
 
     // assume that symbex is 50 times slower
     cpu_enable_ticks();
-
-    //int64_t inst_clock = get_clock() - start_clock;
-    //cpu_adjust_clock(- inst_clock*(1-0.02));
 
     if(shouldExitCpu)
         throw CpuExitException();
@@ -1792,7 +2085,7 @@ uintptr_t S2EExecutor::executeTranslationBlockKlee(
     //    exit(1);
     //}
 
-    /* loop until TB chain is not broken */
+    /* loop until TB chain is not broken */ /* -mhhuang- If TB chain is broken, loop will exit! */
     do {
         /* Make sure to init tb_next value */
         tcg_llvm_runtime.goto_tb = 0xff;
@@ -1831,7 +2124,7 @@ uintptr_t S2EExecutor::executeTranslationBlockKlee(
 #else
                 sigset_t set, oldset;
                 sigfillset(&set);
-                sigprocmask(SIG_BLOCK, &set, &oldset);
+                sigprocmask(SIG_BLOCK, &set, &oldset);  /* -mhhuang- Block all signals */
 #endif
 
                 TranslationBlock* next_tb =
@@ -1899,22 +2192,11 @@ uintptr_t S2EExecutor::executeTranslationBlockConcrete(S2EExecutionState *state,
 
     uintptr_t ret = 0;
     memcpy(s2e_cpuExitJmpBuf, env->jmp_env, sizeof(env->jmp_env));
-    //kkk = 0;
     if(setjmp(env->jmp_env)) {
-      //if(kkk == 1)
-       //{
-       //printf("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOk == %p\n",state->getPc());
-       //kkk = 0;
-        //}
         memcpy(env->jmp_env, s2e_cpuExitJmpBuf, sizeof(env->jmp_env));
         throw CpuExitException();
     } else {
-    //if(state->getPc() == 0x080484f5)
-    //{  kkk = 1; printf("i am runnnnnnnnnnnnnnnnnnnn\n");}
         ret = tcg_qemu_tb_exec(tb->tc_ptr);
-      //kkk=0;
-      //if(kkk == 1)
-       //printf("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOk == %p\n",state->getPc());
     }
 
     memcpy(env->jmp_env, s2e_cpuExitJmpBuf, sizeof(env->jmp_env));
@@ -2023,20 +2305,6 @@ uintptr_t S2EExecutor::executeTranslationBlock(
 
     bool executeKlee = m_executeAlwaysKlee;
 
-    //if(state->getPc() < 0xC0000000)
-    //{
-      //state->dumpStack(40,state->getSp());                
-      //state->dumpX86State( g_s2e->getWarningsStream() );
-
-      //state->enableForking();
-      //state->enableSymbolicExecution();
-    //}
-
-    //else
-    //{
-      //state->disableSymbolicExecution();
-    //}
-
     /* Think how can we optimize if symbex is disabled */
     if(true /*state->m_symbexEnabled*/) {
         if(state->m_startSymbexAtPC != (uint64_t) -1) {
@@ -2092,28 +2360,38 @@ uintptr_t S2EExecutor::executeTranslationBlock(
         processTimers(state, 0);
     }
 
-//if(state->getPc() >= 0x80484f5 && state->getPc()<= 0x8048519 && state->getPc() != 0x80484fe)
-//{
-  //printf("I am in my_strlen()\n");
-//  executeKlee = false;
-//state->m_startSymbexAtPC = (uint64_t) -1;
-//}
-//else
- // if(state->getPc() >= 0xc0000000)
-  //executeKlee = false;
-    //printf("executeKlee = %d\n",executeKlee);
-// executeKlee =false;
-//if(state->getPc() == 0x080484fe)
-  //if(executeKlee == true)
-  //printf("QQQQQQQQQQQQQQQQQQQQQQQ == %d\n",executeKlee);
-  //printf("QQQQQQQQQQQQQQQQQQQQQQQQ == %p\n",state->m_startSymbexAtPC);
-
+#ifdef __MHHUANG_CONCRETIZE_KERNEL__
+    if(state->getPid() == AppPID) {
+        /* User space */
+        if(state->getPc() < 0xc0000000) {
+            if(!state->m_symbexEnabled) {
+                state->enableSymbolicExecution();
+                //executeKlee = true;
+            }
+        }
+        /* Kernel space */
+        else {
+            if(state->m_symbexEnabled) {
+                state->disableSymbolicExecution();
+                //executeKlee = false;
+            }
+        }
+    }
+#endif
 
     if(executeKlee) {
         if(state->m_runningConcrete)
             switchToSymbolic(state);
 
         TimerStatIncrementer t(stats::symbolicModeTime);
+
+#ifdef __MHHUANG_MEASURE_TIME__
+        std::map<uint32_t, ProcStat*>::iterator it = state->allProcStat.find(env->cr[3]);
+        if(it != state->allProcStat.end()) {
+            ProcStat *pPS = it->second;
+            pPS->symICount += tb->icount;
+        }
+#endif
 
         return executeTranslationBlockKlee(state, tb);
 
@@ -2123,6 +2401,14 @@ uintptr_t S2EExecutor::executeTranslationBlock(
             switchToConcrete(state);
 
         TimerStatIncrementer t(stats::concreteModeTime);
+
+#ifdef __MHHUANG_MEASURE_TIME__
+        std::map<uint32_t, ProcStat*>::iterator it = state->allProcStat.find(env->cr[3]);
+        if(it != state->allProcStat.end()) {
+            ProcStat *pPS = it->second;
+            pPS->conICount += tb->icount;
+        }
+#endif
 
         return executeTranslationBlockConcrete(state, tb);
     }
@@ -2232,6 +2518,10 @@ void S2EExecutor::doStateFork(S2EExecutionState *originalState,
             newState->m_qemuIcount = qemu_icount;
             *newState->m_timersState = timers_state;
 
+#ifdef __KS_MHHUANG_SYM_READ__
+            newState->m_asgnSpace = originalState->m_asgnSpace;
+#endif
+
             /* Save CPU state */
             const MemoryObject* cpuMo = newState->m_cpuSystemState;
             uint8_t *cpuStore = newState->m_cpuSystemObject->getConcreteStore();
@@ -2268,13 +2558,10 @@ S2EExecutor::StatePair S2EExecutor::fork(ExecutionState &current,
     static int count=0;
     assert(dynamic_cast<S2EExecutionState*>(&current));
     assert(!static_cast<S2EExecutionState*>(&current)->m_runningConcrete);
-//S2EExecutionState *ss = dynamic_cast<S2EExecutionState*>(&current);
-  //   m_s2e->getWarningsStream()<< "conditions : " << condition << " ip: " <<std::hex << ss->getPc() <<std::endl;
 
     StatePair res = Executor::fork(current, condition, isInternal);
     if(res.first && res.second) {
         if (++count == 10) {
-//        exit(-1);
         }
 
         assert(dynamic_cast<S2EExecutionState*>(res.first));
@@ -2292,20 +2579,160 @@ S2EExecutor::StatePair S2EExecutor::fork(ExecutionState &current,
         doStateFork(static_cast<S2EExecutionState*>(&current),
                        newStates, newConditions);
     }
-/*   
-    if(ConcolicMode & ss->getPc() < 0x40000000)
-    {
-      if(res.first && !res.second)
-      {
-        addConstraint(current, condition);
-      }
-      if(!res.first && res.second)
-      {
-        addConstraint(current, Expr::createIsZero(condition));
-      }
-    }*/
+
     return res;
 }
+
+#ifdef __KS_MHHUANG_STATE_FORK__
+/* Make an identical copy of state, and insert it to the state queue */
+S2EExecutor::StatePair S2EExecutor::dummyFork(ExecutionState *state, bool needExecute) {
+    /* State fork must be done at symbolic execution mode due to architecture of s2e */
+    S2EExecutionState *s2eState = dynamic_cast<S2EExecutionState*>(state);
+    assert(s2eState && "S2EExecutionState conversion fail");
+    if(s2eState->m_runningConcrete) {
+        s2eState->m_startSymbexAtPC = s2eState->getPc();
+        longjmp(env->jmp_env, 1);
+    }
+
+    StatePair states = Executor::dummyFork(state, needExecute);
+    S2EExecutionState *oldState = dynamic_cast<S2EExecutionState*>(states.first);
+    S2EExecutionState *newState = dynamic_cast<S2EExecutionState*>(states.second);
+    assert(oldState && "S2EExecutionState conversion fail");
+    assert(newState && "S2EExecutionState conversion fail");
+
+    if(needExecute) {
+        oldState->m_childState = newState;
+        oldState->m_waitReturnValue = -1;
+
+        newState->m_parentState = oldState;
+        newState->m_childState = NULL;
+        newState->m_waitReturnValue = -1;
+    }
+    else {
+        newState->m_lastS2ETb = NULL;
+    }
+
+    newState->m_active = false;
+    newState->m_needFinalizeTBExec = true;
+
+    newState->getDeviceState()->saveDeviceState();
+    newState->m_qemuIcount = qemu_icount;
+    *newState->m_timersState = timers_state;
+
+    /* Save CPU state */
+    const MemoryObject* cpuMo = newState->m_cpuSystemState;
+    uint8_t *cpuStore = newState->m_cpuSystemObject->getConcreteStore();
+    memcpy(cpuStore, (uint8_t*) cpuMo->address, cpuMo->size);
+    newState->m_active = false;
+
+    /* Save all other objects */
+    foreach(MemoryObject* mo, m_saveOnContextSwitch) {
+        if(mo == cpuMo)
+            continue;
+
+        const ObjectState *os = newState->addressSpace.findObject(mo);
+        ObjectState *wos = newState->addressSpace.getWriteable(mo, os);
+        uint8_t *store = wos->getConcreteStore();
+
+        assert(store);
+        memcpy(store, (uint8_t*) mo->address, mo->size);
+    }
+
+    return states;
+}
+
+/* Suspend waiting state
+   If the child state is still alive when this method is called, then this method 
+   will again be called later when parent state is awaken. In other words, this 
+   method will be called twice, one is when waiting state is going to waiting, 
+   another is when parentState is just waken up, we use m_waitReturnValue to
+   distinguish the two case
+ */
+int S2EExecutor::waitState(S2EExecutionState *parentState) {
+    /* The state is going to wait */
+    if(parentState->m_waitReturnValue == -1) {
+        S2EExecutionState* childState = parentState->m_childState;
+
+        if(childState != NULL && searcher) {
+            searcher->removeState(parentState, NULL);
+            size_t r = states.erase(parentState);
+            assert(r == 1);
+            processTree->deactivate(parentState->ptreeNode);
+
+            m_s2e->getMessagesStream(parentState) << "Wait for state " << childState->getID() << std::endl;
+
+            /* Without this still can work? */
+            longjmp(env->jmp_env, 1);
+        }
+        else {
+            m_s2e->getWarningsStream(parentState) << "ERROR: child state does not exist" << std::endl;
+            return -1;
+        }
+    }
+    /* The state is waken up */
+    else {
+        m_s2e->getMessagesStream(parentState) << "Waken up with status " << parentState->m_waitReturnValue << std::endl;
+
+        int res = parentState->m_waitReturnValue;
+        parentState->m_waitReturnValue = -1;
+        parentState->m_childState = NULL;
+
+        return res;
+    }
+}
+
+/* Set the waitReturnStatus of parent state, and if parent state is waiting, wake up it */
+void S2EExecutor::wakeWaitingState(S2EExecutionState *childState, int status) {
+    if (searcher) {
+        if(childState->m_parentState) {
+            S2EExecutionState *parentState = childState->m_parentState;
+
+            int waitReturnValue = status;
+            assert(waitReturnValue != -1 && "Can not use -1 in exit status!");
+            parentState->m_waitReturnValue = waitReturnValue;
+
+            /* The parent is not waiting, just return */
+            if (states.find(parentState) != states.end()) {
+                return;
+            }
+
+            processTree->activate(parentState->ptreeNode);
+            states.insert(parentState);
+            searcher->addState(parentState, NULL);
+        }
+    }
+}
+
+void S2EExecutor::decideTerminateConcrete(S2EExecutionState *state, int eventID, int eventPara) {
+    if(state->m_terminateInfoList.empty())
+        return;
+
+    TerminateInfoListIter it;
+    for(it=state->m_terminateInfoList.begin(); it!=state->m_terminateInfoList.end(); it++) {
+        if(it->eventID == eventID) {
+            bool shouldTerminate = false;
+            switch(eventID) {
+                case EVENT_WRITE:
+                    if(it->eventPara == eventPara) {
+                        shouldTerminate = true;
+                    }
+                    break;
+                case EVENT_SYM_EIP:
+                    shouldTerminate = true;
+                    break;
+            }
+
+            if(shouldTerminate) {
+                wakeWaitingState(state, 1);
+
+                m_s2e->getWarningsStream(state) << "Terminated by eventID " << eventID << ", eventPara " << eventPara << std::endl;
+                terminateState(*state);
+                break;
+            }
+        }
+    }
+}
+#endif
 
 void S2EExecutor::branch(klee::ExecutionState &state,
           const vector<ref<Expr> > &conditions,
@@ -2371,13 +2798,28 @@ void S2EExecutor::terminateState(ExecutionState &state)
     //No need for exiting the loop if we kill another state.
     if (s == g_s2e_state) {
         s->writeCpuState(CPU_OFFSET(exception_index), EXCP_INTERRUPT, 8*sizeof(int));
+
+#ifdef __KS_MHHUANG_STATE_FORK__
+        /* 
+           If running in concrete mode, throwing CpuExitException is useless unless we are in 
+           s2e_tcg_custom_instruction_handler which will catch the exception. But the exception
+           handling routing is just calling a longjmp like below
+           When running symbolic, there is exception handling routing that can catch CpuExitException
+           , maybe is that in s2e_qemu_tb_exec
+           (The exception handler in s2e_qemu_tb_exec doesn't work when running concrete, we don't
+           knowing why, maybe the stack is corrupted when jump to TranslationBlock) 
+         */
+        if(s->m_runningConcrete)
+            longjmp(env->jmp_env, 1);
+        else 
+#endif
         throw CpuExitException();
     }
 }
 
 inline void S2EExecutor::setCCOpEflags(S2EExecutionState *state)
 {
-    uint32_t cc_op = 0;
+   uint32_t cc_op = 0;
 
     // Check wether any of cc_op, cc_src, cc_dst or cc_tmp are symbolic
     if((state->getSymbolicRegistersMask() & (0xf<<1)) || m_executeAlwaysKlee) {
@@ -2511,12 +2953,6 @@ void S2EExecutor::queueStateForMerge(S2EExecutionState *state)
     static_cast<MergingSearcher*>(searcher)->queueStateForMerge(*state, mergePoint);
     throw CpuExitException();
 }
-/*
-bool S2EExecutor::getConcolicMode()
-{
-  return ConcolicMode;
-}
-*/
 } // namespace s2e
 
 /******************************/
@@ -2758,6 +3194,205 @@ void s2e_tb_free(S2E* s2e, TranslationBlock *tb)
 {
     s2e->getExecutor()->unrefS2ETb(tb->s2e_tb);
 }
+
+#ifdef __KS_MHHUANG_STATE_FORK__
+void mh_decide_terminate_concrete(S2E *s2e, S2EExecutionState *state, uint32_t eventID, uint32_t addr) {
+    s2e->getExecutor()->decideTerminateConcrete(state, eventID, addr);
+}
+#endif
+
+#ifdef __MHHUANG_GDB__
+/* mhhaung added buffer */
+char SSS[1000];
+
+void sldb(S2EExecutionState *state, uint32_t addr) {
+    klee::ref<klee::Expr> res = state->readMemory(addr, klee::Expr::Int8);
+    if(res.get() == NULL) {
+        std::cout << "Page fault" << std::endl;
+        return;
+    }
+
+    std::cout << res;
+}
+
+void sldw(S2EExecutionState *state, uint32_t addr) {
+    klee::ref<klee::Expr> res = state->readMemory(addr, klee::Expr::Int16);
+    if(res.get() == NULL) {
+        std::cout << "Page fault" << std::endl;
+        return;
+    }
+
+    std::cout << res;
+}
+
+void sldl(S2EExecutionState *state, uint32_t addr) {
+    klee::ref<klee::Expr> res = state->readMemory(addr, klee::Expr::Int32);
+    if(res.get() == NULL) {
+        std::cout << "Page fault" << std::endl;
+        return;
+    }
+
+    std::cout << res;
+}
+
+uint8_t cldb(S2EExecutionState *state, uint32_t addr) {
+    klee::ref<klee::Expr> byte = state->readMemory(addr, klee::Expr::Int8);
+    if(byte.get() == NULL) {
+        std::cout << "Page fault" << std::endl;
+        return 0;
+    }
+
+    klee::ref<klee::ConstantExpr> ce = g_s2e->getExecutor()->toConstantSilent(*state, byte);
+    return ce->getZExtValue();
+}
+
+/* mhhuang added function, only used in gdb */
+char* pExpr(Expr* e) {
+    ostringstream oss;
+    oss << std::hex << *e;
+    strcpy(SSS, oss.str().c_str());
+    return SSS;
+}
+
+uint64_t pExprConcrete(S2EExecutionState *state, Expr* e) {
+    klee::ref<klee::ConstantExpr> ce = g_s2e->getExecutor()->toConstantSilent(*state, e);
+    return ce->getZExtValue();
+}
+
+/* mhhuang added function, only used in gdb */
+void saveExpr(Expr* e)
+{
+    fstream fs;
+    fs.open("/home/mhhuang/expr", ios::app|ios::out);
+    fs << std::hex << *e;
+    fs.close();
+}
+
+/* mhhuang added function, only used in gdb */
+char* pExprKind(Expr* e) {
+    ostringstream oss;
+    oss << e->getKind();
+    strcpy(SSS, oss.str().c_str());
+    return SSS;
+}
+
+/* mhhuang added function, only used in gdb */
+char* pVal(Value* v) {
+    ostringstream oss;
+    oss << *v;
+    strcpy(SSS, oss.str().c_str());
+    return SSS;
+}
+
+/* mhhuang added function, only used in gdb */
+char* pInsn(Instruction *i) {
+    ostringstream oss;
+    oss << *i;
+    strcpy(SSS, oss.str().c_str());
+    return SSS;
+}
+
+/* mhhuang added function, only used in gdb */
+char* pNthInsn(BasicBlock* b, int n) {
+    BasicBlock::iterator it = b->begin(), e = b->end();
+    for(int i=0; i<n && it!=e; i++, it++);
+
+    if(it == e) {
+        strcpy(SSS, "Index out of bound\n");
+    }
+    else {
+        pInsn(&*it);
+    }
+    return SSS;
+}
+
+/* mhhuang added function, only used in gdb */
+int pInsnOrder(Instruction *i) {
+    if(i->getParent() == NULL)
+        return -1;
+    BasicBlock::iterator s = i->getParent()->begin();
+    BasicBlock::iterator it(i);
+    int n = 0;
+    while(it != s) {
+        it--;
+        n++;
+    }
+    return n;
+}
+
+/* mhhuang added function, only used in gdb */
+int pNumInsn(BasicBlock* b) {
+    BasicBlock::iterator it = b->begin(), e = b->end();
+    int num = 0;
+    while(it != e) {
+        it++;
+        num++;
+    }
+    return num;
+}
+
+char* pKleeStack(ExecutionState* s) {
+    ostringstream oss;
+    for(uint32_t i=0; i<s->stack.size(); i++) {
+        oss << s->stack[i].kf->function->getNameStr();
+        oss << std::endl;
+    }
+    strcpy(SSS, oss.str().c_str());
+    return SSS;
+}
+
+
+
+/* mhhuang added function, only used in gdb */
+void saveInsn(BasicBlock* b, int start)
+{
+    fstream fs;
+    fs.open("/home/mhhuang/llvmInsn", ios::app|ios::out);
+
+    BasicBlock::iterator it = b->begin(), e = b->end();
+
+    for(int i=0; i<start; i++) {
+        if(it == e)
+            break;
+        it++;
+    }
+
+    for(; it!=e; it++) {
+        fs << *it;
+        fs << "\n";
+    }
+
+    fs.close();
+}
+
+/* mhhuang added function, only used in gdb */
+static int OriginStdErr = -1;
+int errToTemp() {
+    OriginStdErr = dup(2);
+    if(OriginStdErr == -1) {
+        return -1;
+    }
+    int fd = open("/home/mhhuang/tempfile", O_WRONLY | O_CREAT);
+    if(fd == -1) {
+        return -1;
+    }
+    if(dup2(fd, 2) == -1) {
+        return -1;
+    }
+    close(fd);
+    return 1;
+}
+/* mhhuang added function, only used in gdb */
+int closeTemp() {
+    if(OriginStdErr == -1)
+        return -1;
+    if(dup2(OriginStdErr, 2) == -1)
+        return -1;
+    close(OriginStdErr);
+    OriginStdErr = -1;
+    return 1;
+}
+#endif /* MHHUANG_GDB */
 
 #ifdef S2E_DEBUG_MEMORY
 #ifdef __linux__

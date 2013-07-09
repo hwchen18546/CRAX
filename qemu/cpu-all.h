@@ -711,6 +711,12 @@ static inline int _s2e_check_concrete(void *objectState,
 #endif
 }
 
+//#ifdef __KS_MHHUANG_STATE_FORK__
+static inline void _mh_decide_terminate_concrete(int eventID, int eventPara) {
+    mh_decide_terminate_concrete(g_s2e, g_s2e_state, eventID, eventPara);
+}
+//#endif
+
 #define _s2e_define_ld_raw(ct, t, s) \
     static inline ct ld ## t ## _raw(const void* p) { \
         if(g_s2e_state) { /* XXX XXX XXX */ \
@@ -756,7 +762,6 @@ _s2e_define_st_raw(float32,  fl, 4)
 _s2e_define_st_raw(float64,  fq, 8)
 
 #endif
-
 
 #if defined(CONFIG_USER_ONLY)
 

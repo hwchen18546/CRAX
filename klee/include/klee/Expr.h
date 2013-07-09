@@ -20,6 +20,42 @@
 #include <vector>
 #include <iosfwd> // FIXME: Remove this!!!
 
+/* The options start with __KS_ means this should be defined in Expr.h and exec-all.h */
+
+//#define __MHHUANG_MEASURE_TIME__
+//#define __MHHUANG_CHECK_SYM_ARG__               /* Used to detect vulnerability of malloc/printf calls */
+//#define __MHHUANG_EBP_EXPLOIT__
+#define __MHHUANG_CONCRETIZE_POINTER__
+#define __MHHUANG_REDUCE_SIMPLIFY_EXPR__        /* Use empty constraint set when simplify expr */
+#define __MHHUANG_DISCARD_KERNEL__              /* Discard constraints added in kernel, and do not consider symbolic array in kernel space in EG */
+//#define __KS_MHHUANG_STATE_FORK__
+#define __MHHUANG_MANUAL_ADAPTIVE__             /* We can specify the symbolic range in config file */
+//#define __MHHUANG_HEAP_OVERFLOW__
+
+#ifdef __KS_MHHUANG_STATE_FORK__
+//#define __KS_MHHUANG_SYM_READ__
+
+#ifdef __KS_MHHUANG_SYM_READ__
+#define KS_PSEUDO_VAR_PREFIX    "SymRead"
+#endif
+
+#endif
+
+#ifdef __MHHUANG_EBP_EXPLOIT__
+#define FUNC_ARG_SIZE               16          /* The size left for function arguments in symbolic array */
+#endif
+
+#ifdef __MHHUANG_DISCARD_KERNEL__
+//#define KERNEL_SPACE                0xc0000000  /* Linux */
+#define KERNEL_SPACE                0x70000000  /* Windows */
+#endif
+
+#ifdef __MHHUANG_CHECK_SYM_ARG__
+#define SYM_ARG_MALLOC  1
+#define SYM_ARG_PRINTF  2
+#define SYM_ARG_SYSLOG  3
+#endif
+
 namespace llvm {
   class Type;
 }

@@ -320,6 +320,9 @@ void s2e_write_dirty_mask(uint64_t host_address, uint8_t val);
    allows programs to forcibly concretize values on their own. */
 unsigned klee_get_value(unsigned expr);
 
+//#ifdef __KS_MHHUANG_STATE_FORK__
+void mh_decide_terminate_concrete(struct S2E *s2e, struct S2EExecutionState *state, uint32_t eventID, uint32_t addr);
+//#endif
 
 /******************************************************/
 /* Prototypes for special functions used in LLVM code */
@@ -327,16 +330,21 @@ unsigned klee_get_value(unsigned expr);
 /* are implemented as a special function handlers.    */
 
 #if defined(S2E_LLVM_LIB)
-uint64_t tcg_llvm_fork_and_concretize(uint64_t value,
-                                      uint64_t knownMin,
-                                      uint64_t knownMax,
-                                      uint8_t isWrite,
-                                      uint64_t source_value);
+uint32_t tcg_llvm_fork_and_concretize(uint32_t value,
+                                      uint32_t knownMin,
+                                      uint32_t knownMax);
 void tcg_llvm_trace_memory_access(uint64_t vaddr, uint64_t haddr,
                                   uint64_t value, uint32_t bits,
                                   uint8_t isWrite, uint8_t isIo);
 void tcg_llvm_trace_port_access(uint64_t port, uint64_t value,
                                 unsigned bits, int isWrite);
+
+//#ifdef __MHHUANG_QEMU_S2E_WRAPPER__
+uint64_t mh_qemu_s2e_wrapper(uint32_t action, ...);
+//#endif
+//#ifdef __KS_MHHUANG_STATE_FORK__
+void mh_decide_terminate_symbolic(uint32_t eventID, uint32_t addr);
+//#endif
 #endif
 
 #ifdef __cplusplus

@@ -272,4 +272,8 @@ DEF_HELPER_2_M(rclq, tl, tl, tl, _M_CC, _M_CC_TMP, 0)
 DEF_HELPER_2_M(rcrq, tl, tl, tl, _M_CC, _M_CC_TMP, 0)
 #endif
 
+#ifdef __MHHUANG_TRACE_POINT__
+DEF_HELPER_2(mhhuang_trace_point, void, i64, i32)
+#endif
+
 #include "def-helper.h"

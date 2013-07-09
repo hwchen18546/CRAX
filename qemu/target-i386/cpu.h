@@ -619,6 +619,8 @@ typedef struct CPUX86State {
     target_ulong cc_dst;
     target_ulong cc_tmp; /* temporary for rcr/rcl */
 
+    XMMReg xmm_regs[CPU_NB_REGS];   /* -mhhuang- Moved to here to solve mplayer problem */
+
     /* S2E note: the contents of the structure from this point
        can never be symbolic. The content up to this point can
        not be easily accessible from concrete code */
@@ -657,7 +659,6 @@ typedef struct CPUX86State {
     float_status mmx_status; /* for 3DNow! float ops */
     float_status sse_status;
     uint32_t mxcsr;
-    XMMReg xmm_regs[CPU_NB_REGS];
     XMMReg xmm_t0;
     MMXReg mmx_t0;
 

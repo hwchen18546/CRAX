@@ -573,6 +573,11 @@ void cpu_reset(CPUX86State *env)
 
     memset(env, 0, offsetof(CPUX86State, breakpoints));
 
+#ifdef __MHHUANG_DISABLE_TIMER_INTERRUPT__
+    env->timer_interrupt_disabled = 1;
+    env->all_apic_interrupts_disabled = 1;
+#endif
+
     tlb_flush(env, 1);
 
     env->old_exception = -1;
@@ -1949,3 +1954,5 @@ void do_cpu_sipi(CPUState *env)
 {
 }
 #endif
+
+

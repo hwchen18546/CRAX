@@ -1471,22 +1471,22 @@ static int dynticks_start_timer(struct qemu_alarm_timer *t)
     timer_t host_timer;
     struct sigaction act;
 
-    sigfillset(&act.sa_mask);
+    sigfillset(&act.sa_mask);   /* Indicate that all signal should be blocked during the execution of host_alarm_handler */
     act.sa_flags = 0;
     act.sa_handler = host_alarm_handler;
 
-    sigaction(SIGALRM, &act, NULL);
+    sigaction(SIGALRM, &act, NULL); /* Register host_alarm_handler for the action of SIGALRM */
 
     /*
      * Initialize ev struct to 0 to avoid valgrind complaining
      * about uninitialized data in timer_create call
      */
     memset(&ev, 0, sizeof(ev));
-    ev.sigev_value.sival_int = 0;
-    ev.sigev_notify = SIGEV_SIGNAL;
-    ev.sigev_signo = SIGALRM;
+    ev.sigev_value.sival_int = 0;   /* The data to be sent with the signal */
+    ev.sigev_notify = SIGEV_SIGNAL; /* Indicate that a signal is generated upon timer expiration */
+    ev.sigev_signo = SIGALRM;       /* The generated signal number */
 
-    if (timer_create(CLOCK_REALTIME, &ev, &host_timer)) {
+    if (timer_create(CLOCK_REALTIME, &ev, &host_timer)) {   /* Create a timer, initially disalarmed */
         perror("timer_create");
 
         /* disable dynticks */

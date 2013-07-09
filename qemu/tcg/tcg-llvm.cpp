@@ -133,6 +133,12 @@ struct TCGLLVMContextPrivate {
     /* Declaration of a wrapper function for helpers */
     Function *m_helperTraceMemoryAccess;
     Function *m_helperForkAndConcretize;
+#ifdef __MHHUANG_QEMU_S2E_WRAPPER__
+    Function *m_helperMHQemuS2EWrapper;
+#endif
+#ifdef __KS_MHHUANG_STATE_FORK__
+    Function *m_helperMHDecideTerminateSymbolic;
+#endif
     Function* m_qemu_ld_helpers[5];
     Function* m_qemu_st_helpers[5];
 #endif
@@ -344,6 +350,14 @@ void TCGLLVMContextPrivate::initializeHelpers()
 
     m_helperForkAndConcretize =
             m_module->getFunction("tcg_llvm_fork_and_concretize");
+
+#ifdef __MHHUANG_QEMU_S2E_WRAPPER__
+    m_helperMHQemuS2EWrapper = m_module->getFunction("mh_qemu_s2e_wrapper");
+#endif
+
+#ifdef __KS_MHHUANG_STATE_FORK__
+    m_helperMHDecideTerminateSymbolic = m_module->getFunction("mh_decide_terminate_symbolic");
+#endif
 
     m_qemu_ld_helpers[0] = m_module->getFunction("__ldb_mmu");
     m_qemu_ld_helpers[1] = m_module->getFunction("__ldw_mmu");

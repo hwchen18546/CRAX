@@ -46,7 +46,8 @@ public:
                                const char *err, 
                                const char *suffix) = 0;
 
-  virtual void handlerCorruptEip(ExecutionState &state, ref<Expr> value, ref<Expr> target) = 0;
+  /* This is only needed if we want to use S2E functionality in klee */
+  virtual void handlerCorruptReg(ExecutionState &state, ref<Expr> value, ref<Expr> target) = 0;
 };
 
 class Interpreter {
