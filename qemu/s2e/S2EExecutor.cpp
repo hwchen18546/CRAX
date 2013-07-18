@@ -2558,7 +2558,7 @@ S2EExecutor::StatePair S2EExecutor::fork(ExecutionState &current,
     static int count=0;
     assert(dynamic_cast<S2EExecutionState*>(&current));
     assert(!static_cast<S2EExecutionState*>(&current)->m_runningConcrete);
-
+    S2EExecutionState *ss = dynamic_cast<S2EExecutionState*>(&current);
     StatePair res = Executor::fork(current, condition, isInternal);
     if(res.first && res.second) {
         if (++count == 10) {
@@ -2579,7 +2579,13 @@ S2EExecutor::StatePair S2EExecutor::fork(ExecutionState &current,
         doStateFork(static_cast<S2EExecutionState*>(&current),
                        newStates, newConditions);
     }
+    if(ss->stack.size()==2){
+        if(ss->getPc()<0xc0000000){
+            g_s2e->getWarningsStream()<< " the conditions : is " << condition <<" eip is "<<std::hex << ss->getPc()<<std::endl;
 
+
+        }
+    }
     return res;
 }
 
