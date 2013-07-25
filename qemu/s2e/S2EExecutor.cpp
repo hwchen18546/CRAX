@@ -2580,7 +2580,7 @@ S2EExecutor::StatePair S2EExecutor::fork(ExecutionState &current,
                        newStates, newConditions);
     }
     if(ss->stack.size()==2){
-        if(ss->getPc()<0xc0000000){
+        if(ss->getPc()<0x40000000){
             g_s2e->getWarningsStream()<< " the conditions : is " << condition <<" eip is "<<std::hex << ss->getPc()<<std::endl;
 
 

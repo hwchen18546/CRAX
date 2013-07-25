@@ -418,6 +418,7 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
                 if(hostAddress !=  (uint64_t) -1) {
                     op = state->addressSpace.findObject(hostAddress & S2E_RAM_OBJECT_MASK);
                     state->constraints.addConcolicConstraint(EqExpr::create(symb[i], ConstantExpr::create(op.second->concreteStore[hostAddress & ~S2E_RAM_OBJECT_MASK],Expr::Int8)) );
+                    state->addConstraint(NeExpr::create(ConstantExpr::alloc(0x0,Expr::Int8),symb[i]));
                 }
             }
 
@@ -670,7 +671,7 @@ void BaseInstructions::handleBuiltInOps(S2EExecutionState* state, uint64_t opcod
 
     default:
             s2e()->getWarningsStream(state)
-                << "BaseInstructions: Invalid built-in opcode " << hexval(opcode) << std::endl;
+                << "BaseInstructions: Invalid built-in opcode " << hexval((opcode>>8) & 0xFF) <<"the eip is "<<state->getPc()<< std::endl;
             break;
     }
 }
